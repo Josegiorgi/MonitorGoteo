@@ -26,11 +26,11 @@
 #define UART_NO_INT	0		/*!< Flag used when no reading interruption is required */
 /*==================[typedef]================================================*/
 /**
- * @brief List of UART ports available in ESP-EDU
+ * @brief List of available UART ports
  */
 typedef enum uart_ports{
-	UART_PC,				/*!< UART connected PC through USB port (indicated with UART) (also maped to TX: GPIO16, RX: GPIO17) */
-	UART_CONNECTOR,			/*!< UART connected to J2 connector (TX: GPIO18, RX: GPIO19) */
+	UART_PC,				/*!< UART0, uses whatever TX/RX pins ESP-IDF has configured by default for the console (native USB-Serial-JTAG or UART0, depending on the sdkconfig) - no fixed pin of its own */
+	UART_CONNECTOR,			/*!< UART1 (TX: GPIO18, RX: GPIO19) - shares these pins with the SPI bus (SCLK: GPIO18, MOSI: GPIO19), don't use both at the same time */
 } uart_mcu_port_t;
 /**
  * @brief Serial port configuration struct

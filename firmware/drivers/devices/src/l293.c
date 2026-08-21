@@ -18,7 +18,7 @@
 #define MAX_B_SPEED 	-100	/*!< Max backward speed */
 #define PWM_FREQ 		50		/*!< PWM frequency (Hz) */
 #define N_MOTORS		2		/*!< Number of motors */
-#define EN_1_2			GPIO_22
+#define EN_1_2			GPIO_2
 #define A_1				GPIO_21
 #define A_2				GPIO_20
 #define EN_3_4			GPIO_19

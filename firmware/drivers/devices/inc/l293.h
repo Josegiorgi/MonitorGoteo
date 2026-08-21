@@ -15,11 +15,13 @@
  *
  * @note Hardware connections:
  *
- * |   	L293D		|   EDU-CIAA	|
+ * Ported to a generic ESP32-C3 devkit (GPIO_22 doesn't exist there, remapped to GPIO_2).
+ *
+ * |   	L293D		|	Pin (C3)	|
  * |:--------------:|:--------------|
  * | 	5V		 	|	5V			|
  * | 	GND		 	| 	GND			|
- * | 	1,2EN	 	| 	GPIO_22		|
+ * | 	1,2EN	 	| 	GPIO_2		|
  * | 	1A		 	| 	GPIO_21		|
  * | 	2A		 	| 	GPIO_20		|
  * | 	3,4EN	 	| 	GPIO_19		|

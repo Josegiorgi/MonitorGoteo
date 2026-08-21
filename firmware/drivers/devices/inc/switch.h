@@ -7,10 +7,10 @@
 /** \addtogroup Switch
  ** @{ */
 
-/** \brief Switches driver for the ESP-EDU Board.
- * 
- * @note ESP-EDU have 2 switches connected to GPIO_4 and GPIO_15. 
- * The latter is also routed to J2 connector.
+/** \brief Switches driver, ported to a generic ESP32-C3 devkit.
+ *
+ * @note 2 switches supported: SWITCH_1 (default GPIO_4), SWITCH_2 (default GPIO_21).
+ * Wire them to whichever pins suit your project - see gpio_mcu.h.
  *
  * @author Albano Peñalva
  *
@@ -19,7 +19,8 @@
  * |   Date	    | Description                                    						|
  * |:----------:|:----------------------------------------------------------------------|
  * | 23/10/2023 | Document creation		                         						|
- * 
+ * | 21/08/2026 | Ported to ESP32-C3		                         						|
+ *
  **/
 
 /*==================[inclusions]=============================================*/
@@ -29,8 +30,8 @@
 
 /*==================[typedef]================================================*/
 typedef enum switches {
-    SWITCH_1 = (1 << 0),  /**< Routed to GPIO_4 */
-    SWITCH_2 = (1 << 1),  /**< Routed to GPIO_15 */
+    SWITCH_1 = (1 << 0),  /**< Default: GPIO_4 */
+    SWITCH_2 = (1 << 1),  /**< Default: GPIO_21 */
 } switch_t;
 /*==================[external data declaration]==============================*/
 

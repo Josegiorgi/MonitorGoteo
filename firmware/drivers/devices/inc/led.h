@@ -7,10 +7,11 @@
 /** \addtogroup LED Led
  ** @{ */
 
-/** \brief LED driver for the ESP-EDU Board.
+/** \brief LED driver, ported to a generic ESP32-C3 devkit.
  *
- * @note ESP-EDU have 3 LEDs LED_1: green, LED_2: yellow, LED_3: red
- * 
+ * @note 3 LEDs supported: LED_1 (default GPIO_20), LED_2 (default GPIO_10), LED_3
+ * (default GPIO_5). Wire them to whichever pins suit your project - see gpio_mcu.h.
+ *
  * @author Albano Peñalva
  *
  * @section changelog
@@ -18,7 +19,8 @@
  * |   Date	    | Description                                    						|
  * |:----------:|:----------------------------------------------------------------------|
  * | 23/10/2023 | Document creation		                         						|
- * 
+ * | 21/08/2026 | Ported to ESP32-C3		                         						|
+ *
  **/
 
 /*==================[inclusions]=============================================*/
@@ -29,9 +31,9 @@
  * @brief List of available LEDs in ESP-EDU board.
  */
 typedef enum LEDs {
-    LED_3 = (1 << 0), /**< Color red. Routed to GPIO_5 */
-    LED_2 = (1 << 1), /**< Color yellow. Routed to GPIO_10 */
-    LED_1 = (1 << 2), /**< Color green. Routed to GPIO_11 */
+    LED_3 = (1 << 0), /**< Default: GPIO_5 */
+    LED_2 = (1 << 1), /**< Default: GPIO_10 */
+    LED_1 = (1 << 2), /**< Default: GPIO_20 */
 } led_t;
 /*==================[typedef]================================================*/
 

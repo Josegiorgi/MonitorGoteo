@@ -15,7 +15,7 @@
 #include "driver/gpio.h"
 #include "driver/gpio_filter.h"
 /*==================[macros and definitions]=================================*/
-#define GPIO_QTY 	24
+#define GPIO_QTY 	22
 #define FILTER_QTY	8
 typedef struct{
 	uint64_t pin;				/*!< GPIO pin */
@@ -51,8 +51,6 @@ digital_io_t gpio_list[GPIO_QTY] = {
 	{GPIO_NUM_19, GPIO_MODE_DISABLE, GPIO_PULLUP_ONLY, false}, /* Configuration GPIO19*/
 	{GPIO_NUM_20, GPIO_MODE_DISABLE, GPIO_PULLUP_ONLY, false}, /* Configuration GPIO20*/
 	{GPIO_NUM_21, GPIO_MODE_DISABLE, GPIO_PULLUP_ONLY, false}, /* Configuration GPIO21*/
-	{GPIO_NUM_22, GPIO_MODE_DISABLE, GPIO_PULLUP_ONLY, false}, /* Configuration GPIO22*/
-	{GPIO_NUM_23, GPIO_MODE_DISABLE, GPIO_PULLUP_ONLY, false}, /* Configuration GPIO23*/
 };
 gpio_flex_glitch_filter_config_t filter_config = {
 	.clk_src = GLITCH_FILTER_CLK_SRC_DEFAULT,
@@ -65,7 +63,7 @@ gpio_flex_glitch_filter_config_t filter_config = {
 
 /*==================[external functions definition]==========================*/
 void GPIOInit(gpio_t pin, io_t io){
-	if((pin == GPIO_14) || (pin > GPIO_23)){
+	if(((pin >= GPIO_11) && (pin <= GPIO_17)) || (pin > GPIO_21)){
 		return;
 	}
 	if(io == GPIO_INPUT){

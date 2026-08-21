@@ -9,22 +9,23 @@
  * @brief  TFT LCD RGB 240x320 ILI9341 driver
  *
  * @note This driver provide functions to configure and control a 240x320 pixels
- * TFT color display connected to the ESP-EDU. It uses a SPI port and 3 GPIOs to 
- * communicate with the ILI9341 LCD driver chip.
+ * TFT color display, using a SPI port and 3 GPIOs to communicate with the ILI9341 LCD
+ * driver chip. Ported to a generic ESP32-C3 devkit: the SPI bus here is write-only
+ * (no MISO/SDO wired), which is fine since this driver doesn't read back from the display.
  *
  * @author Albano Peñalva
  *
  * @note Hardware connections:
  *
- * |   	Display		|   ESP-EDU		|
+ * |   	Display		|	Pin (C3)	|
  * |:--------------:|:--------------|
- * | 	SDO/MISO 	|	GPIO_22		|
+ * | 	SDO/MISO 	|	not connected |
  * | 	LED		 	| 	3V3			|
- * | 	SCK		 	| 	GPIO_20		|
- * | 	SDI/MOSI 	| 	GPIO_21		|
+ * | 	SCK		 	| 	GPIO_18		|
+ * | 	SDI/MOSI 	| 	GPIO_19		|
  * | 	DC/RS	 	| 	GPIOx		|
  * | 	RESET	 	| 	GPIOx		|
- * | 	CS		 	| 	GPIOx		|
+ * | 	CS		 	| 	GPIO_9		|
  * | 	GND		 	| 	GND			|
  * | 	VCC		 	| 	3V3			|
  *

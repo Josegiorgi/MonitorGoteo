@@ -14,7 +14,7 @@
 #include "gpio_mcu.h"
 /*==================[macros and definitions]=================================*/
 #define GPIO_SWITCH1 GPIO_4
-#define GPIO_SWITCH2 GPIO_15
+#define GPIO_SWITCH2 GPIO_21
 /*==================[internal data declaration]==============================*/
 
 /*==================[internal functions declaration]=========================*/

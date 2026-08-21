@@ -15,8 +15,8 @@
 /*==================[macros and definitions]=================================*/
 #define GPIO_BCD_1	GPIO_20
 #define GPIO_BCD_2	GPIO_21
-#define GPIO_BCD_3	GPIO_22
-#define GPIO_BCD_4	GPIO_23
+#define GPIO_BCD_3	GPIO_2
+#define GPIO_BCD_4	GPIO_3
 #define GPIO_SEL_1	GPIO_19
 #define GPIO_SEL_2	GPIO_18
 #define GPIO_SEL_3	GPIO_9

@@ -9,20 +9,26 @@
  ** @{
  */
 
-/** \brief Driver for using the 3 digits numeric display in ESP-EDU.
+/** \brief Driver for using the 3 digits numeric display, ported from ESP-EDU to a
+ * generic ESP32-C3 devkit.
  *
- * |   Display      |   EDU-CIAA	|
+ * @note Needs 7 dedicated GPIOs. GPIO_22/GPIO_23 (used on the original ESP32-C6 board)
+ * don't exist on the ESP32-C3, so BCD3/BCD4 were remapped to GPIO_2/GPIO_3 below - which
+ * overlap with the suggested ADC use of those pins in gpio_mcu.h. Remap as needed for
+ * your own wiring; this display isn't required for I2C-based projects.
+ *
+ * |   Display      |	Pin (C3)	|
  * |:--------------:|:-------------:|
  * | 	Vcc 	    |	5V      	|
  * | 	BCD1		| 	GPIO_20		|
  * | 	BCD2	 	| 	GPIO_21		|
- * | 	BCD3	 	| 	GPIO_22		|
- * | 	BCD4	 	| 	GPIO_23		|
+ * | 	BCD3	 	| 	GPIO_2		|
+ * | 	BCD4	 	| 	GPIO_3		|
  * | 	SEL1	 	| 	GPIO_19		|
  * | 	SEL2	 	| 	GPIO_18		|
  * | 	SEL3	 	| 	GPIO_9		|
  * | 	Gnd 	    | 	GND     	|
- * 
+ *
  * @author Albano Peñalva
  *
  * @section changelog
@@ -30,7 +36,8 @@
  * |   Date	    | Description                                    						|
  * |:----------:|:----------------------------------------------------------------------|
  * | 23/10/2023 | Document creation		                         						|
- * 
+ * | 21/08/2026 | Ported to ESP32-C3		                         						|
+ *
  **/
 
 /*==================[inclusions]=============================================*/

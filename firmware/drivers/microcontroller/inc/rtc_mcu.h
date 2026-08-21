@@ -7,18 +7,10 @@
 /** \addtogroup RTC Real Time Clock
  ** @{ */
 
-/** \brief GPIO driver for the ESP-EDU Board.
+/** \brief RTC driver.
  *
- * This driver provide functions to configure and handle the ESP-EDU General
- * Purpose Input-Outputs .
- * 
- * @note GPIO_4 and GPIO_15 are connected to ESP-EDU switches (only GPIO_15 is available in headers)
- * 
- * @note GPIO_5, GPIO_10 and GPIO_11 are connected to ESP-EDU LEDs.
- * 
- * @note GPIO_12 and GPIO_13 are not recommended for use, because using them will
- * overwrite the flash and debug functionalities via USB.
- * 
+ * This driver provides functions to configure and read the microcontroller's system time.
+ *
  * @author Albano Peñalva
  *
  * @section changelog

@@ -7,13 +7,18 @@
 /** \addtogroup SPI SPI
  ** @{ */
 
-/** \brief SPI driver for the ESP-EDU Board.
+/** \brief SPI driver for a generic ESP32-C3 DevKit.
  *
- * @note ESP-EDU only have 1 SPI port, than can be connected up to 3 diferent devices using 
- * chip select pins (CS1, CS2, CS3). The SPI_0, SPI_1 and SPI_2 defines refer to this.
- * 
- * @note MISO: GPIO_22, MOSI: GPIO_21, SCLK: GPIO_20, CS1: GPIO_19, CS2: GPIO_18, CS3: GPIO_9
- * 
+ * @note Ported from the original ESP-EDU (ESP32-C6) driver, simplified to a single SPI
+ * device (no MISO, single chip-select) since the ESP32-C3 doesn't have enough free GPIOs
+ * to keep the original 3 chip-select / full-duplex layout. Fine for write-only SPI
+ * peripherals (e.g. displays that are never read back).
+ *
+ * @note MOSI: GPIO_19, SCLK: GPIO_18, CS: GPIO_9
+ *
+ * @note GPIO_18/GPIO_19 are shared with UART_CONNECTOR (see uart_mcu.h) - don't use the
+ * SPI bus and UART_CONNECTOR at the same time.
+ *
  * @author Albano Peñalva
  *
  * @section changelog
@@ -21,7 +26,8 @@
  * |   Date	    | Description                                    						|
  * |:----------:|:----------------------------------------------------------------------|
  * | 09/02/2024 | Document creation		                         						|
- * 
+ * | 21/08/2026 | Ported to ESP32-C3, simplified to a single device		         		|
+ *
  **/
 /*==================[inclusions]=============================================*/
 #include <stdbool.h>
@@ -31,13 +37,10 @@
 /*==================[typedef]================================================*/
 
 /**
- * @brief ESP-EDU only have 1 SPI port, than can be connected up to 3 diferent devices using 
- * chip select pins (CS1, CS2, CS3). The SPI_0, SPI_1 and SPI_2 defines refer to this.
+ * @brief A single SPI device is available (CS: GPIO_9).
  */
 typedef enum spi_devices {
-	SPI_1,			/*!<  CS_1: GPIO_19 */
-	SPI_2,			/*!<  CS_2: GPIO_18 */
-	SPI_3			/*!<  CS_3: GPIO_9 */
+	SPI_1,			/*!<  CS: GPIO_9 */
 } spi_dev_t;
 
 /**

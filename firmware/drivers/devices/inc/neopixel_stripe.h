@@ -30,8 +30,8 @@
 #include "esp_err.h"
 #include "gpio_mcu.h"
 /*==================[macros]=================================================*/
-#define BUILT_IN_RGB_LED_PIN          GPIO_8        /*> ESP32-C6-DevKitC-1 NeoPixel it's connected at GPIO_8 */
-#define BUILT_IN_RGB_LED_LENGTH       1             /*> ESP32-C6-DevKitC-1 NeoPixel has one pixel */
+#define BUILT_IN_RGB_LED_PIN          GPIO_8        /*> Default NeoPixel pin on GPIO_8, generic ESP32-C3 devkit */
+#define BUILT_IN_RGB_LED_LENGTH       1             /*> Single-pixel default */
 
 #define NEOPIXEL_COLOR_WHITE          0x00FFFFFF  /*> Color white */
 #define NEOPIXEL_COLOR_RED            0x00FF0000  /*> Color red */
