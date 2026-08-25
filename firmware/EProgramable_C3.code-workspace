@@ -7,6 +7,12 @@
             "path": "./middleware"
         },
         {
+            "path": "./u8g2"
+        },
+        {
+            "path": "./u8g2_hal"
+        },
+        {
             "path": "./projects/0_blinking"
         },
         {

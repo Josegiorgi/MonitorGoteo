@@ -28,9 +28,36 @@
 static i2c_master_bus_handle_t s_i2c_bus_handle = NULL;
 static uint32_t s_i2c_clock_rate_hz = I2C_MASTER_FREQ_HZ;
 
+/** Cache de handles de dispositivo, uno por direccion I2C. La API nueva de ESP-IDF
+ * (i2c_master.h) espera que un dispositivo se agregue al bus una sola vez y su handle
+ * se reutilice para todas las transacciones; agregarlo y sacarlo en cada transaccion
+ * (como se hacia antes) deja al driver en un estado inconsistente tras muchos ciclos
+ * repetidos y puede colgar el bus. */
+#define I2C_MCU_MAX_DEVICES 8
+static struct {
+    uint8_t devAddr;
+    i2c_master_dev_handle_t handle;
+} s_i2c_devices[I2C_MCU_MAX_DEVICES];
+static uint8_t s_i2c_devices_count = 0;
+
 /*==================[internal functions declaration]=========================*/
 static esp_err_t i2c_mcu_get_device_handle(uint8_t devAddr, i2c_master_dev_handle_t *ret_handle)
 {
+    if (s_i2c_bus_handle == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (uint8_t i = 0; i < s_i2c_devices_count; i++) {
+        if (s_i2c_devices[i].devAddr == devAddr) {
+            *ret_handle = s_i2c_devices[i].handle;
+            return ESP_OK;
+        }
+    }
+
+    if (s_i2c_devices_count >= I2C_MCU_MAX_DEVICES) {
+        return ESP_ERR_NO_MEM;
+    }
+
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = devAddr,
@@ -39,18 +66,13 @@ static esp_err_t i2c_mcu_get_device_handle(uint8_t devAddr, i2c_master_dev_handl
         .flags.disable_ack_check = 0,
     };
 
-    if (s_i2c_bus_handle == NULL) {
-        return ESP_ERR_INVALID_STATE;
+    esp_err_t ret = i2c_master_bus_add_device(s_i2c_bus_handle, &dev_cfg, ret_handle);
+    if (ret == ESP_OK) {
+        s_i2c_devices[s_i2c_devices_count].devAddr = devAddr;
+        s_i2c_devices[s_i2c_devices_count].handle = *ret_handle;
+        s_i2c_devices_count++;
     }
-
-    return i2c_master_bus_add_device(s_i2c_bus_handle, &dev_cfg, ret_handle);
-}
-
-static void i2c_mcu_release_device_handle(i2c_master_dev_handle_t dev_handle)
-{
-    if (dev_handle != NULL) {
-        i2c_master_bus_rm_device(dev_handle);
-    }
+    return ret;
 }
 
 static int i2c_mcu_timeout_ms(uint16_t timeout)
@@ -76,7 +98,7 @@ bool I2C_initialize( uint32_t clockRateHz )
         .sda_io_num = I2C_MASTER_SDA_IO,
         .scl_io_num = I2C_MASTER_SCL_IO,
         .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 0,
+        .glitch_ignore_cnt = 7, // filtro anti-ruido del bus; en 0 quedaba desactivado y cualquier glitch electrico (comun en protoboard) se leia como una transicion valida
         .intr_priority = 0,
         .trans_queue_depth = 0,
         .flags.enable_internal_pullup = 1,
@@ -174,7 +196,6 @@ int8_t I2C_readBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *
         ret = i2c_master_transmit_receive(dev_handle, &register_addr, 1, data, length, i2c_mcu_timeout_ms(timeout));
     }
 
-    i2c_mcu_release_device_handle(dev_handle);
     return (ret == ESP_OK) ? length : 0;
 }
 
@@ -192,8 +213,6 @@ void I2C_SelectRegister(uint8_t devAddr, uint8_t reg){
     if (ret == ESP_OK) {
         ret = i2c_master_transmit(dev_handle, &reg, 1, i2c_mcu_timeout_ms(0));
     }
-
-    i2c_mcu_release_device_handle(dev_handle);
 }
 
 /** write a single bit in an 8-bit device register.
@@ -254,7 +273,6 @@ bool I2C_writeByte(uint8_t devAddr, uint8_t regAddr, uint8_t data) {
         ret = i2c_master_transmit(dev_handle, buffer, sizeof(buffer), i2c_mcu_timeout_ms(0));
     }
 
-    i2c_mcu_release_device_handle(dev_handle);
     return (ret == ESP_OK);
 }
 
@@ -287,7 +305,6 @@ bool I2C_writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *d
         ret = i2c_master_transmit(dev_handle, buffer, length + 1, i2c_mcu_timeout_ms(0));
     }
 
-    i2c_mcu_release_device_handle(dev_handle);
     free(buffer);
     return (ret == ESP_OK);
 }
