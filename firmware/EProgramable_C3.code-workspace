@@ -13,7 +13,7 @@
             "path": "./u8g2_hal"
         },
         {
-            "path": "./projects/0_blinking"
+            "path": "./projects/Display"
         },
         {
             "path": "./projects/1_blinking_switch"
@@ -29,7 +29,7 @@
         }
     ],
     "settings": {
-        "idf.portWin": "COM14",
+        "idf.portWin": "COM5",
         "idf.flashBaudRate": "115200",
         "idf.flashType": "JTAG",
         "cmake.configureOnOpen": false,

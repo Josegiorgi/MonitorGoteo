@@ -86,14 +86,5 @@ void app_main(void){
     drawScreen_1(&u8g2);
     u8g2_SendBuffer(&u8g2);
 
-    //LedsInit();
-    //while(true){
-      //printf("LED ON\n");
-        //LedOn(LED_1);
-        //vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
-        //printf("LED OFF\n");
-        //LedOff(LED_1);
-        //vTaskDelay(CONFIG_BLINK_PERIOD / portTICK_PERIOD_MS);
-    //}
 }
 /*==================[end of file]============================================*/
