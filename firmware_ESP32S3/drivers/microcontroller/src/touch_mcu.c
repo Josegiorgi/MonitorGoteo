@@ -58,6 +58,33 @@ void TouchActivInt(void *ptr_int_func, void *args){
 	touch_pad_intr_enable(TOUCH_PAD_INTR_MASK_ACTIVE);
 }
 
+bool TouchSetSensitivity(uint8_t level){
+	if(!touch_initialized){
+		return false;
+	}
+	touch_high_volt_t hvolt;
+	touch_low_volt_t lvolt;
+	touch_volt_atten_t atten;
+	switch(level){
+		case 0:
+			hvolt = TOUCH_HVOLT_2V4;
+			lvolt = TOUCH_LVOLT_0V7;
+			atten = TOUCH_HVOLT_ATTEN_1V;
+		break;
+		case 2:
+			hvolt = TOUCH_HVOLT_2V7;
+			lvolt = TOUCH_LVOLT_0V5;
+			atten = TOUCH_HVOLT_ATTEN_0V;
+		break;
+		default:
+			hvolt = TOUCH_HVOLT_2V5;
+			lvolt = TOUCH_LVOLT_0V6;
+			atten = TOUCH_HVOLT_ATTEN_0V5;
+		break;
+	}
+	return touch_pad_set_voltage(hvolt, lvolt, atten) == ESP_OK;
+}
+
 bool TouchShieldEnable(touch_ch_t guard_channel, uint8_t shield_level){
 	if(!touch_initialized){
 		return false;

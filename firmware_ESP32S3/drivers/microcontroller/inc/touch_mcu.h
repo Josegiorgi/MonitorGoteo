@@ -26,6 +26,12 @@
  * see TouchShieldEnable(). If you use the shield, GPIO14 can't be used as a sensing
  * electrode or for anything else.
  *
+ * @note On at least one Super Mini board revision, GPIO14 is only reachable through an
+ * internal PCB via in the middle of the board (near the other via cluster labeled with
+ * small numbers), not through an edge/castellated pin - meaning it's not practically
+ * solderable, and TouchShieldEnable() can't be used at all on that revision. Verify GPIO14
+ * is an actual edge pin on your specific board before wiring a shield electrode.
+ *
  * @author Albano Peñalva
  *
  * @section changelog
@@ -107,6 +113,22 @@ bool TouchDetect(touch_ch_t channel);
  * @param args Pointer to callback function parameters
  */
 void TouchActivInt(void *ptr_int_func, void *args);
+
+/**
+ * @brief Set the touch sensor sensitivity
+ *
+ * @note Controls the charge/discharge voltage swing used for each measurement. A bigger
+ * swing (higher level) makes the raw counter react more strongly to small capacitance
+ * changes, at the cost of also amplifying noise - if readings look too noisy at rest,
+ * lower the level.
+ *
+ * @note Requires at least one channel already configured with TouchInit().
+ *
+ * @param level Sensitivity level: 0 (lowest, least noise), 1 (medium), 2 (highest, most
+ * noise-prone)
+ * @return true on success
+ */
+bool TouchSetSensitivity(uint8_t level);
 
 /**
  * @brief Enable the touch sensor waterproof shield
