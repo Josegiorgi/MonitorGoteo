@@ -29,6 +29,9 @@
         },
         {
             "path": "./projects/prueba_fdc1004"
+        },
+        {
+            "path": "./projects/prueba_opt101"
         }
     ],
     "settings": {

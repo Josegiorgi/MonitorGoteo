@@ -128,20 +128,25 @@ void AnalogOutputInit(void){
 }
 
 void AnalogInputReadSingle(adc_ch_t channel, uint16_t *value){
-    switch(channel){
+	/* adc_oneshot_read() escribe un int (4 bytes): no se le puede pasar directamente un
+	 * uint16_t* (2 bytes) o se corrompe la memoria adyacente en el stack. Se lee a una
+	 * variable intermedia y se trunca al copiar. */
+	int raw = 0;
+	switch(channel){
 		case CH0:
-			adc_oneshot_read(adc1_single, ADC_CHANNEL_0, (int*)value);
+			adc_oneshot_read(adc1_single, ADC_CHANNEL_0, &raw);
 		break;
 		case CH1:
-			adc_oneshot_read(adc1_single, ADC_CHANNEL_1, (int*)value);
+			adc_oneshot_read(adc1_single, ADC_CHANNEL_1, &raw);
 		break;
 		case CH2:
-			adc_oneshot_read(adc1_single, ADC_CHANNEL_2, (int*)value);
+			adc_oneshot_read(adc1_single, ADC_CHANNEL_2, &raw);
 		break;
 		case CH3:
-			adc_oneshot_read(adc1_single, ADC_CHANNEL_3, (int*)value);
+			adc_oneshot_read(adc1_single, ADC_CHANNEL_3, &raw);
 		break;
 	}
+	*value = (uint16_t)raw;
 }
 
 void AnalogStartContinuous(adc_ch_t channel){
