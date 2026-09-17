@@ -13,6 +13,7 @@
 #include "analog_io_mcu.h"
 #include "driver/gptimer.h"
 #include "driver/sdm.h"
+#include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_continuous.h"
@@ -132,21 +133,30 @@ void AnalogInputReadSingle(adc_ch_t channel, uint16_t *value){
 	 * uint16_t* (2 bytes) o se corrompe la memoria adyacente en el stack. Se lee a una
 	 * variable intermedia y se trunca al copiar. */
 	int raw = 0;
+	adc_cali_handle_t cali_handle = NULL;
 	switch(channel){
 		case CH0:
 			adc_oneshot_read(adc1_single, ADC_CHANNEL_0, &raw);
+			cali_handle = adc_calibration_single_0;
 		break;
 		case CH1:
 			adc_oneshot_read(adc1_single, ADC_CHANNEL_1, &raw);
+			cali_handle = adc_calibration_single_1;
 		break;
 		case CH2:
 			adc_oneshot_read(adc1_single, ADC_CHANNEL_2, &raw);
+			cali_handle = adc_calibration_single_2;
 		break;
 		case CH3:
 			adc_oneshot_read(adc1_single, ADC_CHANNEL_3, &raw);
+			cali_handle = adc_calibration_single_3;
 		break;
 	}
-	*value = (uint16_t)raw;
+	/* Convierte la cuenta cruda a mV con la curva de calibracion de fabrica del chip
+	 * (creada en AnalogInputInit, antes no se usaba para nada). */
+	int voltage_mV = 0;
+	adc_cali_raw_to_voltage(cali_handle, raw, &voltage_mV);
+	*value = (uint16_t)voltage_mV;
 }
 
 void AnalogStartContinuous(adc_ch_t channel){

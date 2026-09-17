@@ -75,7 +75,8 @@ void AnalogOutputInit(void);
  * @brief Read single channel.
  * 
  * @param channel Channel selected
- * @param value Read variable pointer (in mV)
+ * @param value Read variable pointer (in mV, converted using the calibration curve built in
+ * AnalogInputInit())
  * @return null
  */
 void AnalogInputReadSingle(adc_ch_t channel, uint16_t *value);
