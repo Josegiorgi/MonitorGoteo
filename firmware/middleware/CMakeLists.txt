@@ -4,6 +4,7 @@ idf_build_get_property(target IDF_TARGET)
 set(srcs
     "signal_processing/src/iir_filter.c"
     "signal_processing/src/fft.c"
+    "signal_processing/src/xcorr_detector.c"
 
 # ESP-DSP
     "signal_processing/esp-dsp/modules/common/misc/dsps_pwroftwo.cpp"

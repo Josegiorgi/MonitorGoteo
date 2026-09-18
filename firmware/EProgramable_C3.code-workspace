@@ -32,6 +32,9 @@
         },
         {
             "path": "./projects/prueba_opt101"
+        },
+        {
+            "path": "./projects/analisis_opt101"
         }
     ],
     "settings": {
