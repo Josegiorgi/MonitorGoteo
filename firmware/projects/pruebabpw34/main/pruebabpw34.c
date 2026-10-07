@@ -21,9 +21,10 @@
  *   ambiente); el pasabajos saca el ruido blanco entre el corte y Nyquist (~417 Hz).
  * - MODE_DETECTOR: además del pasabanda, pasa la señal filtrada de cada canal por un detector de
  *   correlación cruzada (componente signal_processing/xcorr_detector) con la plantilla de la gota
- *   de ese canal (drop_template.h, el promedio de 7 gotas reales filtradas). Cuando cualquiera de
- *   los dos canales detecta una gota, se prende un LED (DETECTION_LED) durante LED_ON_TIME_MS.
- *   Sigue transmitiendo la señal filtrada de los dos canales, igual que MODE_FILTERED.
+ *   de ese canal (drop_template.h, el promedio de 7 gotas reales filtradas). Transmite la señal
+ *   filtrada de los dos canales y, como tercer valor de la línea ("canal1,canal2,deteccion"), un
+ *   0 normalmente y DETECTION_VALUE (1000) en la muestra en que cualquiera de los dos canales
+ *   detecta una gota, para que el serial plotter la muestre como una tercera serie.
  *
  * @note Igual que en prueba_opt101, se usa timer_mcu en vez de vTaskDelay: la interrupción del
  * timer solo notifica a ADCTask, y la lectura del ADC, el filtrado y el printf se hacen en la
@@ -50,7 +51,6 @@
  * | Alimentación de los amplificadores   | 3V3                 |
  * | Alimentación del LED emisor (con R serie) | 5V             |
  * | GND de amplificadores y LED          | GND                 |
- * | LED indicador de gota (solo MODE_DETECTOR, con R serie a GND) | GPIO_10 (LED_2) |
  *
  * @note Entre la salida de cada amplificador y su GPIO va un antialias RC (4.7 kΩ en serie y
  * 100 nF a GND, corte ≈ 339 Hz, por debajo de Nyquist). Las plantillas de drop_template.h se
@@ -68,6 +68,7 @@
  * | 22/09/2026 | Document creation		                         |
  * | 23/09/2026 | Se agrega MODE_FILTERED: pasabanda Butterworth de 4° orden por canal, con cortes de 5 Hz y 260 Hz sacados del espectro de energía de la gota (../analisis_bpw34) |
  * | 23/09/2026 | Se agrega MODE_DETECTOR: detección de gotas por correlación cruzada con una plantilla por canal (drop_template.h) y aviso con un LED |
+ * | 07/10/2026 | MODE_DETECTOR: el aviso de gota pasa del LED a un tercer valor en la línea (1000 al detectar, 0 si no) y los umbrales suben a 300 mV para reducir el ruido |
  *
  * @author Josefina Giorgi (josefina.giorgi@ingenieriauner.edu.ar)
  *
@@ -83,11 +84,10 @@
 #include "analog_io_mcu.h"
 #include "iir_filter.h"
 #include "xcorr_detector.h"
-#include "led.h"
 /*==================[macros and definitions]=================================*/
 #define MODE_RAW               0 /*!< Transmite los valores calibrados en mV, sin filtrar */
 #define MODE_FILTERED          1 /*!< Pasa cada canal por el pasabanda antes de transmitirlo */
-#define MODE_DETECTOR          2 /*!< Detecta la gota por correlación cruzada con la plantilla y prende un LED */
+#define MODE_DETECTOR          2 /*!< Detecta la gota por correlación cruzada con la plantilla y la avisa en un tercer valor de la línea */
 
 #define TEST_MODE              MODE_DETECTOR /*!< Modo activo. Cambiar acá para pasar de etapa. */
 
@@ -110,16 +110,14 @@
                                         cada canal (ver nota en BandPassFilter) */
 
 /* Parámetros de MODE_DETECTOR (los valores salen del análisis de ../analisis_bpw34) */
-#define DETECTION_LED        LED_2  /*!< LED que se prende al detectar una gota (LED_2 = GPIO_10; LED_3 = GPIO_5; evitar LED_1 = GPIO_20, que es el RX de la UART de la consola) */
-#define XCORR_THRESHOLD_CH1  59.7f  /*!< Umbral de la correlación del canal 1, en mV de la señal filtrada: 12 veces el desvío de
-                                        la correlación sobre la señal filtrada SIN goteo (el ruido llega a ~3.9 desvíos; la gota
-                                        más chica da ~14 veces el umbral) */
-#define XCORR_THRESHOLD_CH2  51.4f  /*!< Umbral de la correlación del canal 2 (mismo criterio que el canal 1) */
+#define DETECTION_VALUE      1000   /*!< Valor que se transmite en el tercer canal en la muestra en que se detecta una gota (0 el resto del tiempo) */
+#define XCORR_THRESHOLD_CH1  300.0f /*!< Umbral de la correlación del canal 1, en mV de la señal filtrada. Se subió respecto
+                                        del valor del análisis (59.7, 12 desvíos del ruido) para evitar falsas detecciones por ruido */
+#define XCORR_THRESHOLD_CH2  300.0f /*!< Umbral de la correlación del canal 2 (mismo criterio que el canal 1) */
 #define XCORR_PEAK_WINDOW_MS 15     /*!< Tiempo que se espera, tras pasar el umbral, quedándose con el máximo de la
                                         correlación. La plantilla oscila (caída, rebote, caída) y su correlación tiene
                                         lóbulos laterales a unos milisegundos del pico principal que también pueden pasar el umbral */
 #define XCORR_REFRACTORY_MS  100    /*!< Tiempo que se ignora la señal tras detectar una gota (para no contar dos veces la misma) */
-#define LED_ON_TIME_MS       200    /*!< Tiempo que queda prendido el LED después de cada gota */
 
 #define MS_TO_SAMPLES(ms)    (((ms) * 1000UL) / SAMPLE_PERIOD_US)
 
@@ -213,11 +211,9 @@ static void ADCTask(void *pvParameter) {
         }
         printf("%ld,%ld\r\n", filtered_mV[0], filtered_mV[1]);
 #elif TEST_MODE == MODE_DETECTOR
-        /* Modo detector: filtra cada canal, lo pasa por su detector y prende el LED si cualquiera de
-         * los dos canales detecta una gota. Sigue transmitiendo "canal1,canal2" filtrados, igual que
-         * MODE_FILTERED (sin texto extra, que rompería el formato del serial plotter). */
-        static uint32_t led_samples_left = 0;     // muestras que le quedan prendido al LED (static: se conserva entre vueltas)
-
+        /* Modo detector: filtra cada canal, lo pasa por su detector y transmite "canal1,canal2,deteccion":
+         * las dos señales filtradas y un tercer valor que es DETECTION_VALUE en la muestra en que
+         * cualquiera de los dos canales detecta una gota y 0 el resto del tiempo. */
         long filtered_mV[N_CHANNELS];             // salida filtrada de cada canal, en mV enteros
         bool drop_detected = false;               // true si algún canal detectó una gota en esta muestra
         for (int ch = 0; ch < N_CHANNELS; ch++) {
@@ -228,15 +224,7 @@ static void ADCTask(void *pvParameter) {
             filtered_mV[ch] = lroundf(filtered);                                // para imprimir, redondeado al mV
         }
 
-        if (drop_detected) {
-            LedOn(DETECTION_LED);                              // gota: prende el LED...
-            led_samples_left = MS_TO_SAMPLES(LED_ON_TIME_MS);  // ...y (re)arranca la cuenta de cuánto tiempo queda prendido
-        } else if (led_samples_left > 0 && --led_samples_left == 0) {
-            LedOff(DETECTION_LED);                             // se cumplió LED_ON_TIME_MS sin otra gota: lo apaga
-        }
-
-        /* Va después del detector para que el LED no espere al printf */
-        printf("%ld,%ld\r\n", filtered_mV[0], filtered_mV[1]);
+        printf("%ld,%ld,%d\r\n", filtered_mV[0], filtered_mV[1], drop_detected ? DETECTION_VALUE : 0);
 #endif
     }
 }
@@ -258,7 +246,6 @@ void app_main(void) {
 #endif
 
 #if TEST_MODE == MODE_DETECTOR
-    LedsInit();                                 // configura los GPIO de los LEDs de la placa
     for (int ch = 0; ch < N_CHANNELS; ch++) {   // un detector por canal
         xcorr_config_t xcorr_config = {
             .template_signal = drop_templates[ch],                   // plantilla de este canal
