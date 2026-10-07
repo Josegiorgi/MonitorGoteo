@@ -16,7 +16,7 @@ Compara un registro **sin goteo** contra uno **con goteo** (CSV `canal1,canal2,0
 6. Un pasabanda Butterworth de 4° orden (igual al del firmware, implementado con numpy) aplicado a los registros crudos, comparando la gota y la relación señal/ruido antes y después de filtrar.
 7. **Señales filtradas por el firmware** (`MODE_FILTERED`): el mismo análisis (tiempo, FFT, bandas), la forma de la gota filtrada, la **plantilla** de cada canal y la **correlación cruzada** con la plantilla (umbral, falsos positivos, comparación con la detección por amplitud, validación leave-one-out y exportación de las plantillas a C), como en `analisis_opt101`.
 
-8. **Prueba con ruido inventado:** suma a los registros filtrados reales un ruido simulado (blanco, 50 Hz con armónicos y picos aislados, el mismo en los dos canales, pasado por el pasabanda del firmware) y compara tres estrategias de umbral con la misma lógica del detector del firmware: umbral fijo, umbral adaptativo y adaptativo + control de forma.
+8. **Prueba con ruido inventado:** suma a los registros filtrados reales un ruido simulado (blanco, 50 Hz con armónicos y picos aislados, el mismo en los dos canales, pasado por el pasabanda del firmware) y prueba varios **umbrales fijos** con la misma lógica del detector del firmware: margen entre el ruido más alto y la gota más chica, falsas detecciones y gotas detectadas.
 
 Los gráficos de las secciones de señales crudas (1 a 9) están desactivados (comentados, con la marca `[gráfico desactivado: ...]`); las cuentas y los `print` siguen corriendo. Se vuelven a ver descomentando esas líneas.
 
@@ -78,18 +78,20 @@ Registros tomados con `MODE_FILTERED` (pasabanda 5-260 Hz) y con el antialias RC
 
 ## Prueba con ruido inventado (23/09/2026)
 
-Al probar el firmware, conectar otra computadora al mismo enchufe metió ruido que el detector tomó como gotas. Para ver cómo reacciona la correlación, el script suma a los registros filtrados reales un ruido **inventado** (niveles a la entrada del ADC, pasado por el mismo pasabanda del firmware y el mismo en los dos canales). Resultado con los dos canales combinados como en el firmware (falsas sin goteo / falsas con goteo, gotas detectadas de 7):
+Al probar el firmware, conectar otra computadora al mismo enchufe metió ruido que el detector tomó como gotas. Para ver cómo reacciona la correlación, el script suma a los registros filtrados reales un ruido **inventado** (niveles a la entrada del ADC, pasado por el mismo pasabanda del firmware y el mismo en los dos canales) y prueba varios umbrales fijos.
 
-| Escenario | Umbral fijo (firmware actual) | Umbral adaptativo (10 desvíos) | Adaptativo + forma (≥ 0.6) |
-|---|---|---|---|
-| Sin ruido agregado | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 |
-| Blanco (15 mV) | 7 / 12, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 |
-| Red 50 Hz (40 mV) | 67 / 68, 5/7 | 1 / 1, 7/7 | 0 / 0, 7/7 |
-| Picos (3/s, 300 mV) | 32 / 27, 7/7 | 30 / 22, 7/7 | 17 / 16, 7/7 |
-| Todo junto | 67 / 71, 1/7 | 3 / 2, 7/7 | 1 / 1, 7/7 |
+**Margen:** la gota más chica da una correlación de **730** (canal 2); la correlación más alta sin goteo va de **19** (sin ruido agregado) a **312** (el peor ruido inventado). Cualquier umbral entre esos valores separa el ruido de las gotas.
 
-- **El umbral fijo no aguanta ruido nuevo:** con 50 Hz, el detector dispara cada ~115 ms y el LED quedaría prendido.
-- **El umbral adaptativo** (estimar el desvío de la correlación mientras funciona y usar 10 veces ese valor) resuelve el ruido constante (blanco y 50 Hz). Su límite es cuando 10 x el desvío llega a la altura de las gotas; con 50 Hz eso le pasa primero al canal 1, cuya plantilla tiene mucho contenido en bajas frecuencias.
-- **Los picos aislados son lo más difícil:** casi no mueven el umbral adaptativo, y el control de forma descarta solo la mitad.
-- **Combinar los canales no ayuda** con ruido que entra por el enchufe, porque llega igual a los dos.
-- Los niveles de ruido son inventados: para ajustar los parámetros hay que grabar el ruido real (`MODE_FILTERED` con la otra computadora enchufada). La solución de fondo es que el ruido no entre (alimentación filtrada o a batería, masa en estrella, desacople junto al MCP6004, cables cortos).
+Resultado con los dos canales combinados como en el firmware (falsas sin goteo / falsas con goteo, gotas detectadas de 7):
+
+| Umbral | Sin ruido agregado | Blanco (15 mV) | Red 50 Hz (40 mV) | Picos (3/s, 300 mV) | Todo junto |
+|---|---|---|---|---|---|
+| 60 (actual) | 0 / 0, 7/7 | 2 / 4, 7/7 | 67 / 68, 5/7 | 32 / 27, 7/7 | 68 / 71, 1/7 |
+| 200 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 | 11 / 12, 7/7 | 8 / 14, 7/7 |
+| 300 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 | 1 / 0, 7/7 | 1 / 1, 7/7 |
+| 400 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 |
+| 500 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 | 0 / 0, 7/7 |
+
+- **El umbral actual (~60) no aguanta ruido nuevo:** con 50 Hz el detector dispara cada ~115 ms y el LED quedaría prendido.
+- **Un umbral fijo más alto alcanza**, porque el margen es grande. Cerca de la mitad de la gota más chica (~400) no hay falsas detecciones en ningún escenario y se detectan las 7 gotas.
+- **Pendiente: justificar el umbral definitivo** (por ahora no se cambia en el firmware). Los niveles de ruido son inventados y la gota más chica sale de solo 7 gotas: hace falta grabar el ruido real y más gotas (otros ritmos y tamaños) antes de elegirlo.

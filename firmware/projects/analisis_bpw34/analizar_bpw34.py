@@ -845,7 +845,7 @@ for c in range(2):
 # - **Picos:** impulsos cortos (2 muestras) en instantes al azar (`picos_por_s` por segundo, de
 #   hasta `pico_mV`), como los que mete una fuente conmutada o un equipo que se prende y apaga.
 #
-# **Los niveles son inventados.** Sirven para ver cómo reacciona cada estrategia de umbral, no para
+# **Los niveles son inventados.** Sirven para ver cómo reacciona el detector con cada umbral, no para
 # fijar valores: para eso hay que grabar el ruido real (`MODE_FILTERED` con la otra computadora
 # enchufada) y repetir el análisis con ese registro.
 
@@ -895,38 +895,32 @@ fig.tight_layout()
 plt.show()
 
 # %% [markdown]
-# ### Tres estrategias de umbral
+# ### Qué umbral fijo elegir
 #
-# 1. **Umbral fijo** (lo que hace hoy el firmware): 12 desvíos de la correlación medidos sobre la
-#    señal sin goteo **limpia** (59.7 y 51.4). Si el ruido crece, el umbral no se entera.
-# 2. **Umbral adaptativo:** el detector estima el desvío de la correlación mientras funciona (con
-#    un promedio exponencial de la correlación al cuadrado, de ~`TAU_ADAPTATIVO_S` segundos) y usa
-#    `FACTOR_ADAPTATIVO` veces ese desvío. Si aparece ruido, el umbral **sube solo**. Para que las
-#    gotas no inflen la estimación, cada valor de la correlación se limita a ±3 desvíos antes de
-#    usarlo (las gotas dan valores de decenas de desvíos); y el umbral nunca baja del fijo. Es implementable en el firmware (una multiplicación y una suma
-#    por muestra).
-# 3. **Adaptativo + forma:** además del umbral, se pide que el pedazo de señal se **parezca** a la
-#    plantilla: la similitud de forma es la correlación dividida por la energía del pedazo (1 =
-#    misma forma, 0 = nada que ver), y tiene que ser al menos `FORMA_MINIMA`. Un pico de ruido
-#    puede dar una correlación grande solo por ser grande, pero su forma no es la de una gota.
+# El umbral tiene que quedar **entre** dos valores de la correlación:
 #
-# La detección se simula con la **misma lógica del firmware** (ventana de 15 ms quedándose con el
-# máximo y 100 ms de período refractario), y los dos canales se combinan como en el firmware: el
-# LED se prende si **cualquiera** de los dos detecta.
+# - **Por arriba del ruido:** la correlación más alta que da la señal **sin goteo** (con el ruido
+#   que haya). Si el umbral queda por debajo, el ruido se toma como gota (falsa detección).
+# - **Por debajo de las gotas:** la correlación de la gota **más chica**. Si el umbral queda por
+#   encima, esa gota se pierde.
+#
+# El umbral actual del firmware (12 desvíos de la correlación sin goteo, ~60) se calculó con el
+# ruido de la señal limpia: queda muy pegado a ese ruido y lejísimo de las gotas (~730-880), así
+# que cualquier ruido nuevo lo supera. Acá se prueban varios umbrales fijos más altos, con la
+# **misma lógica del detector del firmware** (al pasar el umbral espera 15 ms quedándose con el
+# máximo y después ignora 100 ms) y combinando los dos canales como en el firmware: el LED se
+# prende si **cualquiera** de los dos detecta.
 
 # %%
-FACTOR_ADAPTATIVO = 10.0
-TAU_ADAPTATIVO_S = 1.0
-FORMA_MINIMA = 0.6
+UMBRALES_A_PROBAR = (60, 200, 300, 400, 500)  # el primero es (aprox.) el umbral actual del firmware
+UMBRAL_ELEGIDO = 400                          # el que se grafica en detalle
 PEAK_WINDOW = int(15 * 1000 / SAMPLE_PERIOD_US)  # igual que XCORR_PEAK_WINDOW_MS en el firmware
 REFRACTARIO = int(100 * 1000 / SAMPLE_PERIOD_US)  # igual que XCORR_REFRACTORY_MS
 
 
-def detector_firmware(corr, umbral, forma=None, forma_min=None):
-    """Misma lógica que XCorrDetectorProcess: al pasar el umbral espera PEAK_WINDOW muestras quedándose con
-    el máximo, detecta, e ignora REFRACTARIO muestras. Si se pasa `forma`, descarta las detecciones cuya
-    similitud de forma en el pico sea menor a forma_min."""
-    umbral = np.broadcast_to(umbral, corr.shape)
+def detector_firmware(corr, umbral):
+    """Misma lógica que XCorrDetectorProcess: al pasar el umbral espera PEAK_WINDOW muestras quedándose
+    con el máximo, detecta, e ignora REFRACTARIO muestras. Devuelve el índice de cada detección."""
     detecciones = []
     buscando, quedan, refractario, maximo, k_max = False, 0, 0, 0.0, 0
     for n, v in enumerate(corr):
@@ -940,33 +934,11 @@ def detector_firmware(corr, umbral, forma=None, forma_min=None):
             if quedan == 0:
                 buscando = False
                 refractario = REFRACTARIO
-                if forma is None or forma[k_max] >= forma_min:
-                    detecciones.append(k_max)
+                detecciones.append(k_max)
             continue
-        if v > umbral[n]:
+        if v > umbral:
             buscando, quedan, maximo, k_max = True, PEAK_WINDOW, v, n
     return np.array(detecciones, dtype=int)
-
-
-def umbral_adaptativo(corr, umbral_fijo, factor=FACTOR_ADAPTATIVO, tau_s=TAU_ADAPTATIVO_S):
-    """Umbral = factor x desvío de la correlación, estimado en línea (promedio exponencial de corr²)."""
-    alfa = 1 / (tau_s * fs)
-    varianza = (umbral_fijo / FACTOR_UMBRAL) ** 2  # arranca con el desvío medido sin ruido
-    umbral = np.empty(len(corr))
-    for n, v in enumerate(corr):
-        desvio = np.sqrt(varianza)
-        umbral[n] = max(factor * desvio, umbral_fijo)
-        # Cada muestra se limita a ±3 desvíos antes de usarla: así las gotas (y sus lóbulos, que también
-        # son grandes, positivos y negativos) casi no mueven la estimación del ruido
-        v_limitado = min(max(v, -3 * desvio), 3 * desvio)
-        varianza += alfa * (v_limitado * v_limitado - varianza)
-    return umbral
-
-
-def similitud_de_forma(x, plantilla_normalizada):
-    """Correlación dividida por la energía de cada pedazo de señal: 1 = misma forma que la plantilla."""
-    energia = np.sqrt(np.convolve(x * x, np.ones(L_plantilla), mode="valid"))
-    return correlacion_con_plantilla(x, plantilla_normalizada) / np.maximum(energia, 1e-9)
 
 
 def combinar_canales(det_1, det_2, separacion_s=0.2):
@@ -978,125 +950,134 @@ def combinar_canales(det_1, det_2, separacion_s=0.2):
     return np.array(eventos, dtype=int)
 
 
-def evaluar(x_sin, x_con, estrategia):
+def evaluar(x_sin, x_con, umbral):
     """Devuelve (falsas sin goteo, falsas con goteo, gotas detectadas) con los dos canales combinados."""
-    det = {"sin": [], "con": []}
-    for c in range(2):
-        for clave, x in (("sin", x_sin[:, c]), ("con", x_con[:, c])):
-            corr = correlacion_con_plantilla(x, plantillas_unit[c])
-            if estrategia == "Umbral fijo":
-                det[clave].append(detector_firmware(corr, umbral_corr[c]))
-            else:
-                umbral = umbral_adaptativo(corr, umbral_corr[c])
-                forma = similitud_de_forma(x, plantillas_unit[c]) if estrategia == "Adaptativo + forma" else None
-                det[clave].append(detector_firmware(corr, umbral, forma, FORMA_MINIMA))
-    ev_sin = combinar_canales(*det["sin"])
-    ev_con = combinar_canales(*det["con"]) + L_plantilla // 2  # índice de la correlación -> índice de la señal
+    det_sin = [detector_firmware(correlacion_con_plantilla(x_sin[:, c], plantillas_unit[c]), umbral) for c in range(2)]
+    det_con = [detector_firmware(correlacion_con_plantilla(x_con[:, c], plantillas_unit[c]), umbral) for c in range(2)]
+    ev_sin = combinar_canales(*det_sin)
+    ev_con = combinar_canales(*det_con) + L_plantilla // 2  # índice de la correlación -> índice de la señal
     aciertos = sum(np.any(np.abs(ev_con - k) < 0.03 * fs) for k in gotas_filt[0])
     return len(ev_sin), len(ev_con) - aciertos, aciertos
 
 
 # %% [markdown]
-# ### El escenario de ejemplo en detalle (canal 1)
+# ### Margen: ruido más alto contra gota más chica
 #
-# Arriba, la correlación con el umbral fijo (rojo) y el adaptativo (verde): con ruido, la
-# correlación sin goteo pasa el umbral fijo muchas veces, mientras que el adaptativo sube y la deja
-# por debajo. Abajo, la similitud de forma en los instantes detectados.
+# Para cada escenario, la correlación más alta que da la señal sin goteo (barras) y la de la gota
+# más chica sin ruido (línea negra). Cualquier umbral que quede entre las barras y la línea separa
+# el ruido de las gotas; las líneas de colores son los umbrales que se prueban.
 
 # %%
-c = 0
-corr_ej = correlacion_con_plantilla(xr_con_ej[:, c], plantillas_unit[c])
-umbral_ej = umbral_adaptativo(corr_ej, umbral_corr[c])
-forma_ej = similitud_de_forma(xr_con_ej[:, c], plantillas_unit[c])
-det_fijo = detector_firmware(corr_ej, umbral_corr[c])
-det_adapt = detector_firmware(corr_ej, umbral_ej, forma_ej, FORMA_MINIMA)
-t_c = tiempos_de_correlacion(len(corr_ej))
+gota_mas_chica = min(corr_con[c][picos_con[c]].min() for c in range(2))
+max_ruido = {}
+for nombre in ESCENARIOS_RUIDO:
+    r_sin, _ = ruidos[nombre]
+    x_sin_r = xfilt_sin_full + r_sin[:, None]
+    max_ruido[nombre] = max(correlacion_con_plantilla(x_sin_r[:, c], plantillas_unit[c]).max() for c in range(2))
 
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 8), sharex=True)
-ax1.plot(t_c, np.maximum(corr_ej, 0), linewidth=0.6, color="tab:purple", label="Correlación (parte positiva)")
-ax1.axhline(umbral_corr[c], color="red", linestyle="--", label=f"Umbral fijo = {umbral_corr[c]:.0f} -> {len(det_fijo)} detecciones")
-ax1.plot(t_c, umbral_ej, color="tab:green", linewidth=1.5, label=f"Umbral adaptativo -> {len(det_adapt)} detecciones (con forma)")
-ax1.plot(t_c[det_fijo], corr_ej[det_fijo], "rx", markersize=7)
-ax1.plot(t_c[det_adapt], corr_ej[det_adapt], "gv", markersize=10)
-ax1.plot(gotas_filt[c] / fs, np.full(len(gotas_filt[c]), corr_ej.max() * 1.05), "kv", markersize=8, label="Gotas reales")
-ax1.set_ylabel("Correlación")
-ax1.set_ylim(bottom=0)
-ax1.set_title(f"\"{ESCENARIO_EJEMPLO}\", señal con goteo - {CANALES[c]}")
-ax1.legend(loc="upper right")
-ax1.grid(True, alpha=0.3)
-ax2.plot(t_c[det_fijo], forma_ej[det_fijo], "rx", markersize=7, label="Detecciones con umbral fijo")
-ax2.plot(t_c[det_adapt], forma_ej[det_adapt], "gv", markersize=10, label="Detecciones adaptativo + forma")
-ax2.axhline(FORMA_MINIMA, color="black", linestyle=":", label=f"Forma mínima = {FORMA_MINIMA}")
-ax2.set_ylim(-1, 1.05)
-ax2.set_xlabel("Tiempo (s)")
-ax2.set_ylabel("Similitud de forma")
-ax2.legend(loc="lower right")
-ax2.grid(True, alpha=0.3)
+fig, ax = plt.subplots(figsize=(13, 5))
+ax.bar(list(ESCENARIOS_RUIDO), list(max_ruido.values()), color="tab:gray", label="Correlación más alta sin goteo (ruido)")
+ax.axhline(gota_mas_chica, color="black", linewidth=2, label=f"Gota más chica = {gota_mas_chica:.0f}")
+for u, color in zip(UMBRALES_A_PROBAR, plt.cm.viridis(np.linspace(0, 0.9, len(UMBRALES_A_PROBAR)))):
+    ax.axhline(u, color=color, linestyle="--", linewidth=1.2, label=f"Umbral {u}")
+ax.set_ylabel("Correlación")
+ax.set_title("Margen entre el ruido y las gotas (los dos canales)")
+ax.legend(loc="upper left", fontsize=8)
+ax.grid(True, axis="y", alpha=0.3)
+plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
 fig.tight_layout()
 plt.show()
 
+print(f"Gota más chica (sin ruido): {gota_mas_chica:.0f}")
+for nombre, m in max_ruido.items():
+    print(f"   {nombre:22s}: correlación más alta sin goteo = {m:.0f}")
+
 # %% [markdown]
-# ### Resumen: todos los escenarios y las tres estrategias
+# ### Resumen: todos los escenarios y los umbrales probados
 #
-# Para cada escenario se cuentan, con los dos canales combinados como en el firmware: las
-# detecciones **falsas** en la señal sin goteo, las falsas en la señal con goteo y las **gotas
-# detectadas** (de 7). Lo ideal es 0 / 0 / 7.
+# Para cada umbral y cada escenario se cuentan, con los dos canales combinados como en el firmware:
+# las detecciones **falsas** en la señal sin goteo, las falsas en la señal con goteo y las **gotas
+# detectadas** (de 7). Lo ideal es 0 / 0, 7/7.
 
 # %%
-ESTRATEGIAS = ("Umbral fijo", "Adaptativo", "Adaptativo + forma")
+print(f"{'Umbral':>7s} | " + " | ".join(f"{n:>20s}" for n in ESCENARIOS_RUIDO))
 resumen = {}
-print(f"{'Escenario':22s} | " + " | ".join(f"{e:>20s}" for e in ESTRATEGIAS))
-print(f"{'':22s} | " + " | ".join(f"{'falsas sin/con, gotas':>20s}" for _ in ESTRATEGIAS))
-for nombre in ESCENARIOS_RUIDO:
-    r_sin, r_con = ruidos[nombre]
-    x_sin_r = xfilt_sin_full + r_sin[:, None]
-    x_con_r = xfilt_con_full + r_con[:, None]
-    resumen[nombre] = [evaluar(x_sin_r, x_con_r, e) for e in ESTRATEGIAS]
-    print(f"{nombre:22s} | " + " | ".join(f"{fs_:>6d} /{fc:>3d}, {g}/7".rjust(20) for fs_, fc, g in resumen[nombre]))
+for u in UMBRALES_A_PROBAR:
+    resumen[u] = {}
+    for nombre in ESCENARIOS_RUIDO:
+        r_sin, r_con = ruidos[nombre]
+        resumen[u][nombre] = evaluar(xfilt_sin_full + r_sin[:, None], xfilt_con_full + r_con[:, None], u)
+    print(f"{u:>7d} | " + " | ".join(f"{fs_:>3d} /{fc:>3d}, {g}/7".rjust(20) for fs_, fc, g in resumen[u].values()))
 
 fig, axs = plt.subplots(1, 2, figsize=(15, 5))
 x_pos = np.arange(len(ESCENARIOS_RUIDO))
-ancho = 0.27
-for i, e in enumerate(ESTRATEGIAS):
-    falsas = [resumen[n][i][0] + resumen[n][i][1] for n in ESCENARIOS_RUIDO]
-    gotas = [resumen[n][i][2] for n in ESCENARIOS_RUIDO]
-    axs[0].bar(x_pos + (i - 1) * ancho, falsas, width=ancho, label=e)
-    axs[1].bar(x_pos + (i - 1) * ancho, gotas, width=ancho, label=e)
+ancho = 0.8 / len(UMBRALES_A_PROBAR)
+for i, u in enumerate(UMBRALES_A_PROBAR):
+    falsas = [resumen[u][n][0] + resumen[u][n][1] for n in ESCENARIOS_RUIDO]
+    gotas = [resumen[u][n][2] for n in ESCENARIOS_RUIDO]
+    desplazamiento = (i - (len(UMBRALES_A_PROBAR) - 1) / 2) * ancho
+    axs[0].bar(x_pos + desplazamiento, falsas, width=ancho, label=f"Umbral {u}")
+    axs[1].bar(x_pos + desplazamiento, gotas, width=ancho, label=f"Umbral {u}")
 axs[0].set_title("Detecciones falsas (sin goteo + con goteo)")
 axs[1].set_title("Gotas detectadas (de 7)")
 axs[1].axhline(len(gotas_filt[0]), color="black", linewidth=0.8)
 for ax in axs:
     ax.set_xticks(x_pos)
     ax.set_xticklabels(list(ESCENARIOS_RUIDO), rotation=20, ha="right")
-    ax.legend()
+    ax.legend(fontsize=8)
     ax.grid(True, axis="y", alpha=0.3)
+fig.tight_layout()
+plt.show()
+
+# %% [markdown]
+# ### El escenario de ejemplo en detalle (canal 1)
+#
+# La correlación de la señal con goteo y ruido, con el umbral actual (rojo) y el elegido (verde).
+# Con el umbral actual, el ruido lo pasa todo el tiempo; con el elegido, solo lo pasan las gotas.
+
+# %%
+c = 0
+corr_ej = correlacion_con_plantilla(xr_con_ej[:, c], plantillas_unit[c])
+det_actual = detector_firmware(corr_ej, umbral_corr[c])
+det_elegido = detector_firmware(corr_ej, UMBRAL_ELEGIDO)
+t_c = tiempos_de_correlacion(len(corr_ej))
+
+fig, ax = plt.subplots(figsize=(16, 5))
+ax.plot(t_c, np.maximum(corr_ej, 0), linewidth=0.6, color="tab:purple", label="Correlación (parte positiva)")
+ax.axhline(umbral_corr[c], color="red", linestyle="--", label=f"Umbral actual = {umbral_corr[c]:.0f} -> {len(det_actual)} detecciones")
+ax.axhline(UMBRAL_ELEGIDO, color="tab:green", linewidth=1.5, label=f"Umbral {UMBRAL_ELEGIDO} -> {len(det_elegido)} detecciones")
+ax.plot(t_c[det_actual], corr_ej[det_actual], "rx", markersize=7)
+ax.plot(t_c[det_elegido], corr_ej[det_elegido], "gv", markersize=10)
+ax.plot(gotas_filt[c] / fs, np.full(len(gotas_filt[c]), corr_ej.max() * 1.05), "kv", markersize=8, label="Gotas reales")
+ax.set_xlabel("Tiempo (s)")
+ax.set_ylabel("Correlación")
+ax.set_ylim(bottom=0)
+ax.set_title(f"\"{ESCENARIO_EJEMPLO}\", señal con goteo - {CANALES[c]}")
+ax.legend(loc="upper right")
+ax.grid(True, alpha=0.3)
 fig.tight_layout()
 plt.show()
 
 # %% [markdown]
 # ### Qué muestra la prueba
 #
-# - **El umbral fijo no aguanta ruido nuevo:** se calculó con el ruido de la señal limpia (~4 mV),
-#   así que cualquier ruido agregado lo pasa. Con 50 Hz, la correlación queda por encima del umbral
-#   casi todo el tiempo y el detector dispara cada ~115 ms (15 ms de ventana + 100 ms de
-#   refractario): el LED quedaría prendido.
-# - **El umbral adaptativo resuelve el ruido "constante"** (blanco y 50 Hz): el umbral sube hasta
-#   quedar por encima del ruido y las gotas, que dan una correlación mucho más grande, siguen
-#   pasándolo. El límite es cuando el ruido es tan grande que `FACTOR_ADAPTATIVO` x su desvío
-#   llega a la altura de las gotas (~850): ahí se empiezan a perder gotas. Pasa primero en el
-#   **canal 1**: su plantilla tiene una cola lenta (la respuesta del pasaaltos) con mucho contenido
-#   en bajas frecuencias, así que el 50 Hz le sube mucho la correlación. En el ejemplo, su umbral
-#   adaptativo queda en ~800, justo debajo de las gotas, y el canal 1 solo pierde algunas; el LED
-#   igual las marca porque el canal 2 sí las detecta.
-# - **Los picos aislados son lo más difícil:** como son esporádicos, casi no suben el desvío, así
-#   que el umbral adaptativo apenas se mueve (las falsas detecciones casi no bajan respecto del
-#   umbral fijo); y un pico grande pasado por el pasabanda da una correlación grande. El control
-#   de forma descarta más o menos la mitad, pero no todos: un impulso filtrado se parece bastante a
-#   una gota (la gota también es un evento corto).
-# - **Combinar los canales no ayuda con este ruido:** como entra por el enchufe, llega igual a los
-#   dos canales. Pedir que detecten los dos a la vez sirve contra ruido que afecta a un solo canal.
+# - **El umbral actual (~60) no aguanta ruido nuevo:** se calculó con el ruido de la señal limpia
+#   (la correlación sin goteo no pasa de ~20), así que cualquier ruido agregado lo supera. Con
+#   50 Hz, la correlación queda por encima casi todo el tiempo y el detector dispara cada ~115 ms
+#   (15 ms de ventana + 100 ms de refractario): el LED quedaría prendido.
+# - **Subir el umbral fijo alcanza**, porque el margen es muy grande: la gota más chica da ~730 y el
+#   peor ruido inventado ~310. Un umbral cerca de la **mitad de la gota más chica (~400)** queda
+#   con margen para los dos lados: las gotas pueden achicarse casi a la mitad y el ruido puede
+#   crecer ~20 veces respecto de la señal limpia antes de dar falsas detecciones.
+# - **Los picos aislados son el ruido que más exige:** un pico grande pasado por el pasabanda da
+#   una correlación alta. Con 200 todavía dan falsas detecciones; desde ~400, no.
 #
-# Conclusión: el procesamiento puede **mitigar** el ruido (el umbral adaptativo es la mejora más
-# útil para el firmware), pero la solución de fondo es que el ruido no entre: alimentación
-# filtrada o a batería, masa en estrella, capacitores de desacople junto al MCP6004, cables cortos
-# o blindados. Y para ajustar los valores, grabar el ruido real con la otra computadora enchufada.
+# Límites de la prueba:
+#
+# - **Los niveles de ruido son inventados.** Si el ruido real es mayor (por ejemplo, picos de 600 mV
+#   en vez de 300) podría pasar 400: hay que grabar el ruido real (`MODE_FILTERED` con la otra
+#   computadora enchufada) y ver cuánto da su correlación.
+# - **La gota más chica sale de solo 7 gotas, de un tamaño y un ritmo.** Con gotas más chicas u
+#   otro ritmo la correlación puede bajar; el canal 2 es el más ajustado (su gota más chica da ~730).
+# - La solución de fondo sigue siendo que el ruido no entre: alimentación filtrada o a batería,
+#   masa en estrella, capacitores de desacople junto al MCP6004, cables cortos.
