@@ -1,0 +1,4 @@
+| Canal | Peor ruido | Gota más débil | Umbral propuesto (punto medio) | Veces sobre el ruido | Veces bajo la gota más débil |
+|---|---|---|---|---|---|
+| BPW34 c1 | 19.5 | 459 | 95 | 4.9 | 4.9 |
+| BPW34 c2 | 16.5 | 536 | 94 | 5.7 | 5.7 |

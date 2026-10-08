@@ -1,0 +1,5 @@
+| registro | duracion_s | base_mV | sigma_crudo_mV | eventos | dV_media_mV | contraste_medio_pct | contraste_de_pct | contraste_min_pct | deriva_mV_min | variacion_max_mV | variacion_en_sigma | deriva_concluyente |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| OPT101 (crudo 18/09) | 26.8 | 2499 | 1.48 | 36 | 20.6 | 0.82 | 0.10 | 0.68 | -0.00 | 0.0 | 0.0 | no (registro corto) |
+| BPW34 c1 (crudo 23/09) | 19.1 | 1231 | 1.48 | 24 | 671.9 | 54.58 | 3.15 | 48.66 | -2.00 | 1.0 | 0.7 | no (registro corto) |
+| BPW34 c2 (crudo 23/09) | 19.1 | 1195 | 1.48 | 24 | 635.8 | 53.20 | 3.71 | 47.11 | -1.00 | 0.5 | 0.3 | no (registro corto) |
