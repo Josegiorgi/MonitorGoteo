@@ -41,6 +41,12 @@
         },
         {
             "path": "./projects/analisis_bpw34"
+        },
+        {
+            "path": "./projects/comparacion_sensores"
+        },
+        {
+            "path": "./projects/prueba_mpu6000"
         }
     ],
     "settings": {
