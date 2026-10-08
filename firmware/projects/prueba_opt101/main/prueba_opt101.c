@@ -21,8 +21,9 @@
  * - MODE_DETECTOR: además del pasabanda, pasa la señal filtrada por el detector de correlación
  *   cruzada (componente signal_processing/xcorr_detector) con la plantilla de la gota
  *   (drop_template.h, el promedio de 8 gotas reales). Cuando la correlación pasa el umbral y
- *   se confirma el pico, se prende un LED (DETECTION_LED) durante LED_ON_TIME_MS. Sigue
- *   transmitiendo la señal filtrada muestra a muestra, igual que MODE_FILTERED.
+ *   se confirma el pico, se transmite DETECTION_VALUE (500) como segundo valor de la línea
+ *   ("filtrada,deteccion"; 0 el resto del tiempo), para que el serial plotter lo grafique como
+ *   una segunda serie, igual que en pruebabpw34.
  *
  * @note Se usa timer_mcu en vez de vTaskDelay porque el pulso de la gota dura pocos
  * milisegundos: con vTaskDelay, el período mínimo real queda atado al tick de FreeRTOS, y pedir
@@ -69,6 +70,7 @@
  * | 18/09/2026 | Análisis espectral (ver ../analisis_opt101) muestra que el exceso de energía con goteo está en ~90-200Hz, no en frecuencias bajas. Se saca el baseline adaptativo y se vuelve a un pasaaltos Butterworth, ahora con corte en 85Hz en vez de 1-5Hz - a esta relación corte/muestreo ya no hay problema de estabilidad numérica. CUTOFF_LOWPASS_HZ sube de 50Hz a 195Hz para dejar pasar toda la banda de interés |
  * | 19/09/2026 | Se agrega MODE_DETECTOR: detección de gotas por correlación cruzada con una plantilla (nuevo componente xcorr_detector en middleware, plantilla en drop_template.h) y aviso con un LED |
  * | 19/09/2026 | MODE_DETECTOR sigue transmitiendo la señal filtrada muestra a muestra (como MODE_FILTERED) mientras prende el LED al detectar; se saca el mensaje de texto por gota, que rompía el formato del plotter |
+ * | 08/10/2026 | MODE_DETECTOR: el aviso de gota pasa del LED a un segundo valor en la línea (500 al detectar, 0 si no), como en pruebabpw34. La señal filtrada se imprime con 1 decimal para que la línea entre en SAMPLE_PERIOD_US a 115200 baudios |
  *
  * @author Josefina Giorgi (josefina.giorgi@ingenieriauner.edu.ar)
  *
@@ -77,18 +79,18 @@
 /*==================[inclusions]=============================================*/
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "timer_mcu.h"
 #include "analog_io_mcu.h"
 #include "iir_filter.h"
 #include "xcorr_detector.h"
-#include "led.h"
 #include "drop_template.h"
 /*==================[macros and definitions]=================================*/
 #define MODE_RAW               0 /*!< Transmite el valor calibrado en mV, sin filtrar */
 #define MODE_FILTERED          1 /*!< Pasa la lectura por el filtro pasabanda antes de transmitirla */
-#define MODE_DETECTOR          2 /*!< Detecta la gota por correlación cruzada con la plantilla y prende un LED */
+#define MODE_DETECTOR          2 /*!< Detecta la gota por correlación cruzada con la plantilla y lo avisa en un segundo valor de la línea */
 
 #define TEST_MODE              MODE_DETECTOR /*!< Modo activo. Cambiar acá para pasar de etapa. */
 
@@ -113,7 +115,7 @@
                                         brusco más allá del corte */
 
 /* Parámetros de MODE_DETECTOR (los valores salen del análisis de ../analisis_opt101) */
-#define DETECTION_LED        LED_2  /*!< LED que se prende al detectar una gota (LED_2 = GPIO_10; LED_3 = GPIO_5; evitar LED_1 = GPIO_20, que es el RX de la UART de la consola) */
+#define DETECTION_VALUE      500    /*!< Valor que se transmite en el segundo valor de la línea en la muestra en que se detecta una gota (0 el resto del tiempo) */
 #define XCORR_THRESHOLD      13.7f  /*!< Umbral de la correlación, en mV de la señal filtrada. Es 12 veces el desvío de la
                                         correlación sobre la señal filtrada SIN goteo (donde el ruido llega a ~4.6 veces
                                         ese desvío); la gota más chica confirmada da ~15.5, el ruido, hasta ~5.2 */
@@ -121,7 +123,6 @@
                                         correlación. La plantilla oscila (pico, valle, rebote) y su correlación tiene
                                         lóbulos laterales a ~6ms del pico principal que también pasan el umbral */
 #define XCORR_REFRACTORY_MS  100    /*!< Tiempo que se ignora la señal tras detectar una gota (para no contar dos veces la misma) */
-#define LED_ON_TIME_MS       200    /*!< Tiempo que queda prendido el LED después de cada gota */
 
 #define MS_TO_SAMPLES(ms)    (((ms) * 1000UL) / SAMPLE_PERIOD_US)
 /*==================[internal data definition]===============================*/
@@ -166,24 +167,19 @@ static void ADCTask(void *pvParameter) {
 
         printf("%.2f\r\n", filtered_mV);
 #elif TEST_MODE == MODE_DETECTOR
-        static uint32_t led_samples_left = 0;
-
         float raw_mV = (float)voltage_mV;
         float lowpassed_mV, filtered_mV;
         LowPassFilter(&raw_mV, &lowpassed_mV, 1);
         HiPassFilter(&lowpassed_mV, &filtered_mV, 1);
 
-        if (XCorrProcess(filtered_mV, NULL)) {
-            LedOn(DETECTION_LED);
-            led_samples_left = MS_TO_SAMPLES(LED_ON_TIME_MS);
-        } else if (led_samples_left > 0 && --led_samples_left == 0) {
-            LedOff(DETECTION_LED);
-        }
+        bool drop_detected = XCorrProcess(filtered_mV, NULL);
 
-        /* Igual que MODE_FILTERED: se sigue transmitiendo la señal filtrada muestra a muestra (para
-         * el serial plotter). Va después del detector para que el LED no espere al printf. No se
-         * imprime ningún texto extra: rompería el formato de una columna numérica del plotter. */
-        printf("%.2f\r\n", filtered_mV);
+        /* Se transmite "filtrada,deteccion": la señal filtrada y un segundo valor que es
+         * DETECTION_VALUE en la muestra en que se detecta una gota y 0 el resto del tiempo (el
+         * serial plotter lo grafica como una segunda serie). Se imprime con 1 decimal (no 2) para
+         * que la línea, ahora con el segundo valor, siga entrando en SAMPLE_PERIOD_US a 115200
+         * baudios (~87 us por caracter). No se imprime ningún texto extra: rompería el formato. */
+        printf("%.1f,%d\r\n", filtered_mV, drop_detected ? DETECTION_VALUE : 0);
 #endif
     }
 }
@@ -204,8 +200,6 @@ void app_main(void) {
 #endif
 
 #if TEST_MODE == MODE_DETECTOR
-    LedsInit();
-
     xcorr_config_t xcorr_config = {
         .template_signal = DROP_TEMPLATE,
         .template_len = DROP_TEMPLATE_LEN,
