@@ -72,7 +72,7 @@ void app_main(void){
 
     // Opción B: con u8g2
     u8g2_esp32_hal_t hal = U8G2_ESP32_HAL_DEFAULT;
-    hal.bus.i2c.sda = 6;  // GPIO_6
+    hal.bus.i2c.sda = 21;  // GPIO_21
     hal.bus.i2c.scl = 7;  // GPIO_7
     u8g2_esp32_hal_init(hal);
 

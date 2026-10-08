@@ -32,7 +32,7 @@ bool FDC1004_Init(void) {
 
     if (deviceId != FDC1004_DEVICE_ID_VALUE) {
         ESP_LOGE(TAG, "El FDC1004 no respondio en la direccion I2C 0x%02X (Device ID leido: 0x%04X, "
-                      "esperado 0x%04X). Revisa cableado (SDA=GPIO_6, SCL=GPIO_7) y alimentacion.",
+                      "esperado 0x%04X). Revisa cableado (SDA=GPIO_21, SCL=GPIO_7) y alimentacion.",
                  FDC1004_I2C_ADDRESS, deviceId, FDC1004_DEVICE_ID_VALUE);
         return false;
     }

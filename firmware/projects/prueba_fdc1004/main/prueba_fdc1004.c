@@ -24,7 +24,7 @@
  * |:---------------------------:|:--------------:|
  * | VCC                         | 3V3            |
  * | GND (lado I2C)               | GND            |
- * | SDA                          | GPIO_6         |
+ * | SDA                          | GPIO_21        |
  * | SCL                          | GPIO_7         |
  * | Canal (ver ACTIVE_CHANNEL)   | placa activa (arco de cobre) |
  * | Shield (el asociado a ese canal en el módulo) | placa/guarda detrás de las placas |

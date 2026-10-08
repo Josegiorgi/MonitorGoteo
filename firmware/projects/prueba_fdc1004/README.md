@@ -19,7 +19,7 @@ El módulo FDC1004 tiene 4 pines de un lado (I2C + alimentación) y 3 del otro (
 |---|---|
 | `VCC` | 3V3 |
 | `GND` (lado I2C) | GND |
-| `SDA` | GPIO_6 |
+| `SDA` | GPIO_21 |
 | `SCL` | GPIO_7 |
 | `Canal` (`CIN2` en este módulo — verificado en el banco, no es `CIN1`) | Placa activa (arco de cobre) |
 | `Shield` (el que el módulo trae junto al canal usado) | Blindaje detrás de las dos placas |

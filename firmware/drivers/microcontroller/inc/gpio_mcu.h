@@ -22,7 +22,7 @@
  *
  * @note GPIO_5, GPIO_10 and GPIO_20 suggested for LEDs.
  *
- * @note GPIO_6 and GPIO_7 suggested for I2C (SDA/SCL) - see i2c_mcu.h.
+ * @note GPIO_21 and GPIO_7 suggested for I2C (SDA/SCL) - see i2c_mcu.h.
  *
  * @note GPIO_2, GPIO_8 and GPIO_9 are strapping pins (boot mode selection): avoid driving
  * them externally during reset.
@@ -70,7 +70,7 @@ typedef enum gpio_list{
 	GPIO_3, 	/**< GPIO3 - shared with ADC CH3 */
 	GPIO_4, 	/**< GPIO4 - suggested for SWITCH_1 */
 	GPIO_5, 	/**< GPIO5 - suggested for LED_3 */
-	GPIO_6, 	/**< GPIO6 - shared with I2C SDA */
+	GPIO_6, 	/**< GPIO6 - free (was I2C SDA) */
 	GPIO_7, 	/**< GPIO7 - shared with I2C SCL */
 	GPIO_8, 	/**< GPIO8 - shared with NeoPixel (strapping pin) */
 	GPIO_9, 	/**< GPIO9 - shared with SPI CS0 (strapping pin) */
@@ -85,7 +85,7 @@ typedef enum gpio_list{
 	GPIO_18, 	/**< GPIO18 - shared with UART_CONNECTOR TX and SPI SCLK (also USB D-) */
 	GPIO_19, 	/**< GPIO19 - shared with UART_CONNECTOR RX and SPI MOSI (also USB D+) */
 	GPIO_20, 	/**< GPIO20 - suggested for LED_1 (also default UART0 RX on some devkits) */
-	GPIO_21,	/**< GPIO21 - suggested for SWITCH_2 (also default UART0 TX on some devkits) */
+	GPIO_21,	/**< GPIO21 - I2C SDA (also default UART0 TX on some devkits) */
 } gpio_t;
 
 /*==================[internal data declaration]==============================*/

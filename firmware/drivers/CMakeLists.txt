@@ -25,7 +25,7 @@ set(srcs
     # "devices/src/icons.c"
     # "devices/src/servo_sg90.c"
     # "devices/src/hx711.c"
-    # "devices/src/mpu6050.c"
+    "devices/src/mpu6050.c"
     "devices/src/ssd1315.c"
     "devices/src/fdc1004.c"
     "devices/src/buzzer.c"

@@ -105,7 +105,7 @@ bool SSD1315_Init(uint8_t i2cAddress) {
 
     if (!SSD1315_WriteCommand(0xAE)) { // Display OFF (primer comando: sirve de test de comunicacion)
         ESP_LOGE(TAG, "El display no respondio en la direccion I2C 0x%02X. "
-                      "Revisa cableado (SDA=GPIO_6, SCL=GPIO_7), alimentacion y direccion I2C.", devAddr);
+                      "Revisa cableado (SDA=GPIO_21, SCL=GPIO_7), alimentacion y direccion I2C.", devAddr);
         return false;
     }
 

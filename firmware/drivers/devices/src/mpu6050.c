@@ -16,8 +16,8 @@
 /*==================[macros and definitions]=================================*/
 
 /*==================[internal data definition]===============================*/
-uint8_t devAddr;
-uint8_t buffer[14];
+static uint8_t devAddr;
+static uint8_t buffer[14];
 /*==================[internal functions declaration]=========================*/
 
 /*==================[external functions definition]==========================*/
