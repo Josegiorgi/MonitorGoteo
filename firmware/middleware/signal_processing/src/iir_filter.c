@@ -72,6 +72,12 @@ void IirHiPassInit(iir_filter_t *filter, float sample_frec, float cut_frec, filt
     IirInit(filter, dsps_biquad_gen_hpf_f32, sample_frec, cut_frec, order);
 }
 
+void IirNotchInit(iir_filter_t *filter, float sample_frec, float notch_frec, float gain_db, float q){
+    filter->n_sections = 1;
+    dsps_biquad_gen_notch_f32(filter->coeffs[0], notch_frec / sample_frec, gain_db, q);
+    memset(filter->delay, 0, sizeof(filter->delay));
+}
+
 void IirFilter(iir_filter_t *filter, float *input_signal, float *output_signal, int16_t signal_lenght){
     // the first section reads the input; the next ones filter the output in place
     float *input = input_signal;

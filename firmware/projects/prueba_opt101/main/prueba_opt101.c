@@ -6,19 +6,23 @@
  * transimpedancia integrado OPT101, sobre ESP32-C3. El OPT101 y un LED enfrentado forman una
  * barrera de luz: mientras el haz llega completo al sensor la tensión de salida se mantiene
  * en un nivel base, y al caer una gota por el medio (interrumpiendo/refractando parcialmente
- * el haz) esa tensión cambia momentáneamente. Tiene 3 modos seleccionables por TEST_MODE:
+ * el haz) esa tensión cambia momentáneamente. Tiene 4 modos seleccionables por TEST_MODE:
  *
  * - MODE_RAW: transmite el valor calibrado en mV, sin filtrar. Sirve para verificar que el
  *   sensor/ADC responden bien (por ejemplo, si "MODE_FILTERED" da algo raro, comparar acá para
  *   saber si el problema está en el filtro o en otro lado).
  * - MODE_FILTERED: pasa la lectura por un pasabanda Butterworth (pasaaltos + pasabajos en
  *   cascada, componente signal_processing) antes de transmitirla. La salida ya no es una
- *   tensión absoluta - queda centrada en 0, sin la continua. El corte del pasabanda (~85-195Hz)
- *   sale de un análisis espectral real (ver ../analisis_opt101): comparando con FFT la misma
- *   grabación antes/después de empezar a gotear, el exceso de energía con goteo se concentra
- *   en ~90-200Hz, no en las frecuencias bajas donde se había estado filtrando antes - por eso
- *   nunca se veía el pico, se estaba cortando justo la banda que lleva la información.
- * - MODE_DETECTOR: además del pasabanda, pasa la señal filtrada por el detector de correlación
+ *   tensión absoluta - queda centrada en 0, sin la continua. El corte del pasabanda (60-300Hz)
+ *   sale de un análisis real con el OPT101 en 100k/3.9nF (ver ../analisis_opt101): el 88% de la
+ *   energía de la gota está entre 85 y 340Hz, y entre 10 y 60Hz de pasaaltos con 300Hz de
+ *   pasabajos la detectabilidad es la misma. Ver los comentarios de CUTOFF_HIGHPASS_HZ y
+ *   CUTOFF_LOWPASS_HZ.
+ * - MODE_FILTERED_NOTCH: igual que MODE_FILTERED, más un filtro notch en 100Hz (el segundo
+ *   armónico de la red, que es lo que más ruido deja pasar por el pasabanda: en los registros
+ *   con el OPT101 en 100k/3.9nF baja el desvío del ruido de ~17 a ~3mV). Sirve para comparar
+ *   las dos señales filtradas y decidir si vale la pena el notch.
+ * - MODE_DETECTOR: además del pasabanda (y del notch, si DETECTOR_USE_NOTCH es 1), pasa la señal filtrada por el detector de correlación
  *   cruzada (componente signal_processing/xcorr_detector) con la plantilla de la gota
  *   (drop_template.h, el promedio de 8 gotas reales). Cuando la correlación pasa el umbral y
  *   se confirma el pico, se transmite DETECTION_VALUE (500) como segundo valor de la línea
@@ -71,6 +75,8 @@
  * | 19/09/2026 | Se agrega MODE_DETECTOR: detección de gotas por correlación cruzada con una plantilla (nuevo componente xcorr_detector en middleware, plantilla en drop_template.h) y aviso con un LED |
  * | 19/09/2026 | MODE_DETECTOR sigue transmitiendo la señal filtrada muestra a muestra (como MODE_FILTERED) mientras prende el LED al detectar; se saca el mensaje de texto por gota, que rompía el formato del plotter |
  * | 08/10/2026 | MODE_DETECTOR: el aviso de gota pasa del LED a un segundo valor en la línea (500 al detectar, 0 si no), como en pruebabpw34. La señal filtrada se imprime con 1 decimal para que la línea entre en SAMPLE_PERIOD_US a 115200 baudios |
+ * | 09/10/2026 | Con los registros nuevos del OPT101 (Rf 100k, C 3.9nF, antialias 4k7+100nF, LED con 1k2) el pasabanda pasa de 85-195Hz a 60-300Hz, ver la justificación en CUTOFF_HIGHPASS_HZ/CUTOFF_LOWPASS_HZ. OJO: drop_template.h y XCORR_THRESHOLD siguen siendo de los datos anteriores, hay que regenerarlos con un registro filtrado nuevo |
+ * | 09/10/2026 | Se agrega el notch en 100Hz (IirNotchInit en iir_filter) y MODE_FILTERED_NOTCH (pasabanda + notch). MODE_DETECTOR pasa a ser el modo 3 y usa el notch solo si DETECTOR_USE_NOTCH es 1. El filtrado de una muestra pasa a FilterSample() |
  *
  * @author Josefina Giorgi (josefina.giorgi@ingenieriauner.edu.ar)
  *
@@ -90,7 +96,8 @@
 /*==================[macros and definitions]=================================*/
 #define MODE_RAW               0 /*!< Transmite el valor calibrado en mV, sin filtrar */
 #define MODE_FILTERED          1 /*!< Pasa la lectura por el filtro pasabanda antes de transmitirla */
-#define MODE_DETECTOR          2 /*!< Detecta la gota por correlación cruzada con la plantilla y lo avisa en un segundo valor de la línea */
+#define MODE_FILTERED_NOTCH    2 /*!< Pasabanda + notch en NOTCH_FREQ_HZ antes de transmitirla */
+#define MODE_DETECTOR          3 /*!< Detecta la gota por correlación cruzada con la plantilla y lo avisa en un segundo valor de la línea */
 
 #define TEST_MODE              MODE_DETECTOR /*!< Modo activo. Cambiar acá para pasar de etapa. */
 
@@ -99,16 +106,32 @@
                                         quedar entre 0.5 y 1 ms para resolver bien el pico de la
                                         gota - queda en el techo de ese rango para tener más
                                         margen posible contra el watchdog */
-#define CUTOFF_HIGHPASS_HZ   85.0f  /*!< Corte del pasaaltos. El análisis espectral (FFT,
-                                        misma grabación antes/después de empezar a gotear, ver
-                                        ../analisis_opt101) mostró que el exceso de energía con
-                                        goteo arranca recién cerca de los 90Hz - por debajo de
-                                        eso es todo deriva/ruido de baja frecuencia sin
-                                        información de la gota */
-#define CUTOFF_LOWPASS_HZ    195.0f /*!< Corte del pasabajos. El mismo análisis mostró que el
-                                        exceso de energía llega hasta ~190-200Hz (con máximos en
-                                        100-120Hz, 150-160Hz y 180-190Hz) - por encima de eso ya
-                                        no hay diferencia entre con/sin goteo, solo ruido */
+#define CUTOFF_HIGHPASS_HZ   60.0f  /*!< Corte del pasaaltos. Con el OPT101 en 100k/3.9nF (ver
+                                        ../analisis_opt101) solo ~10% de la energía de la gota
+                                        está por debajo de 85Hz, y el ruido de ahí para abajo es
+                                        deriva y zumbido de red. 60Hz saca la deriva y la continua
+                                        del LED (~900mV) y atenúa los 50Hz de la red (ganancia
+                                        ~0.4 con ORDER_4), sin recortar la gota: en la prueba con
+                                        20 gotas reales, cualquier corte entre 10 y 60Hz da la
+                                        misma detectabilidad (la peor gota queda ~25 veces sobre
+                                        el máximo del ruido) */
+#define CUTOFF_LOWPASS_HZ    300.0f /*!< Corte del pasabajos. La energía de la gota llega hasta
+                                        ~300Hz (57% en 150-250Hz, 12% en 250-340Hz), bastante más
+                                        arriba que con la ganancia anterior. Más arriba no hay
+                                        nada que aportar: el antialias analógico (RC 4k7+100nF,
+                                        fc ~339Hz) y el OPT101 (fc ~408Hz) ya atenúan. Bajarlo a
+                                        200Hz o menos empeora la detección (peor gota / ruido de
+                                        ~25 a ~17, y a 150Hz ~10) porque se recorta la gota */
+#define NOTCH_FREQ_HZ        100.0f /*!< Frecuencia del notch: segundo armónico de la red (50Hz x 2), el pico de ruido
+                                        más alto de los registros (~22mV, contra ~7mV en 50Hz) */
+#define NOTCH_Q              8.0f   /*!< Q del notch: ancho de banda ~ NOTCH_FREQ_HZ / NOTCH_Q = 12.5Hz. Más alto saca
+                                        solo la línea de 100Hz pero deja pasar el zumbido si la red se corre un poco
+                                        (los registros tienen picos en 99.9, 100.0 y 100.2Hz); más bajo es más
+                                        tolerante pero deforma más la gota */
+#define NOTCH_GAIN_DB        -100.0f /*!< Ganancia en NOTCH_FREQ_HZ (dB). -100 equivale a un notch prácticamente completo */
+#define DETECTOR_USE_NOTCH   0      /*!< 1: MODE_DETECTOR aplica el notch además del pasabanda; 0: solo el pasabanda.
+                                        OJO: la plantilla (drop_template.h) se arma con la señal filtrada, así que
+                                        tiene que generarse con el mismo filtro que use el detector */
 #define FILTER_ORDER         ORDER_4 /*!< Orden del Butterworth (ORDER_2, 4, 6 u 8), para ambos
                                         filtros. Con ORDER_2 (12dB/octava) la transición entre
                                         "pasa" y "corta" es muy suave; un orden mayor cae más
@@ -116,7 +139,7 @@
 
 /* Parámetros de MODE_DETECTOR (los valores salen del análisis de ../analisis_opt101) */
 #define DETECTION_VALUE      500    /*!< Valor que se transmite en el segundo valor de la línea en la muestra en que se detecta una gota (0 el resto del tiempo) */
-#define XCORR_THRESHOLD      13.7f  /*!< Umbral de la correlación, en mV de la señal filtrada. Es 12 veces el desvío de la
+#define XCORR_THRESHOLD      50.7f  /*!< Umbral de la correlación, en mV de la señal filtrada. Es 12 veces el desvío de la
                                         correlación sobre la señal filtrada SIN goteo (donde el ruido llega a ~4.6 veces
                                         ese desvío); la gota más chica confirmada da ~15.5, el ruido, hasta ~5.2 */
 #define XCORR_PEAK_WINDOW_MS 15     /*!< Tiempo que se espera, tras pasar el umbral, quedándose con el máximo de la
@@ -124,13 +147,26 @@
                                         lóbulos laterales a ~6ms del pico principal que también pasan el umbral */
 #define XCORR_REFRACTORY_MS  100    /*!< Tiempo que se ignora la señal tras detectar una gota (para no contar dos veces la misma) */
 
+/* Se usa el notch en MODE_FILTERED_NOTCH y, si DETECTOR_USE_NOTCH es 1, en MODE_DETECTOR */
+#if TEST_MODE == MODE_FILTERED_NOTCH || (TEST_MODE == MODE_DETECTOR && DETECTOR_USE_NOTCH)
+#define USE_NOTCH            1
+#else
+#define USE_NOTCH            0
+#endif
+
 #define MS_TO_SAMPLES(ms)    (((ms) * 1000UL) / SAMPLE_PERIOD_US)
 /*==================[internal data definition]===============================*/
 static TaskHandle_t adc_task_handle = NULL;
+#if USE_NOTCH
+static iir_filter_t notch_filter;
+#endif
 
 /*==================[internal functions declaration]=========================*/
 static void FuncTimerSample(void *param);
 static void ADCTask(void *pvParameter);
+#if TEST_MODE != MODE_RAW
+static float FilterSample(float raw_mV);
+#endif
 
 /*==================[internal functions definition]===========================*/
 
@@ -138,6 +174,23 @@ static void ADCTask(void *pvParameter);
 static void FuncTimerSample(void *param) {
     vTaskNotifyGiveFromISR(adc_task_handle, pdFALSE);
 }
+
+#if TEST_MODE != MODE_RAW
+/** @brief Pasa una muestra por el pasabanda (pasabajos y después pasaaltos, que saca la
+ *  continua) y, si USE_NOTCH es 1, por el notch. LowPassFilter/HiPassFilter/IirFilter guardan el
+ *  estado entre llamadas, así que llamarlos con signal_lenght=1 (una muestra por vez) funciona
+ *  como filtro en tiempo real. La salida queda centrada en 0 (con la gota como pico positivo o
+ *  negativo), no es más una tensión absoluta. */
+static float FilterSample(float raw_mV) {
+    float lowpassed_mV, filtered_mV;
+    LowPassFilter(&raw_mV, &lowpassed_mV, 1);
+    HiPassFilter(&lowpassed_mV, &filtered_mV, 1);
+#if USE_NOTCH
+    IirFilter(&notch_filter, &filtered_mV, &filtered_mV, 1);
+#endif
+    return filtered_mV;
+}
+#endif
 
 /** @brief Tarea encargada de leer el ADC, filtrarlo (según TEST_MODE) y transmitirlo, una vez
  *  por notificación del timer. */
@@ -150,27 +203,15 @@ static void ADCTask(void *pvParameter) {
 
 #if TEST_MODE == MODE_RAW
         printf("%u\r\n", voltage_mV);
-#elif TEST_MODE == MODE_FILTERED
-        /* LowPassFilter/HiPassFilter guardan el estado internamente entre llamadas, así que
-         * llamarlos con signal_lenght=1 (una muestra por vez) funciona como filtro en tiempo
-         * real. El pasaaltos va después del pasabajos y saca la continua - la salida queda
-         * centrada en 0 (con la gota como pico positivo o negativo), no es más una tensión
-         * absoluta.
-         *
-         * @note Se imprime con decimales (%.2f) a propósito: después de sacar la continua, lo
+#elif TEST_MODE == MODE_FILTERED || TEST_MODE == MODE_FILTERED_NOTCH
+        /* @note Se imprime con decimales (%.2f) a propósito: después de sacar la continua, lo
          * que queda puede ser de apenas unos pocos mV (o menos) de amplitud. Redondear a
          * entero ahí destruye la resolución justo donde más importa. */
-        float raw_mV = (float)voltage_mV;
-        float lowpassed_mV, filtered_mV;
-        LowPassFilter(&raw_mV, &lowpassed_mV, 1);
-        HiPassFilter(&lowpassed_mV, &filtered_mV, 1);
+        float filtered_mV = FilterSample((float)voltage_mV);
 
         printf("%.2f\r\n", filtered_mV);
 #elif TEST_MODE == MODE_DETECTOR
-        float raw_mV = (float)voltage_mV;
-        float lowpassed_mV, filtered_mV;
-        LowPassFilter(&raw_mV, &lowpassed_mV, 1);
-        HiPassFilter(&lowpassed_mV, &filtered_mV, 1);
+        float filtered_mV = FilterSample((float)voltage_mV);
 
         bool drop_detected = XCorrProcess(filtered_mV, NULL);
 
@@ -194,9 +235,13 @@ void app_main(void) {
     };
     AnalogInputInit(&adc_config);
 
-#if TEST_MODE == MODE_FILTERED || TEST_MODE == MODE_DETECTOR
+#if TEST_MODE != MODE_RAW
     LowPassInit(1000000.0f / SAMPLE_PERIOD_US, CUTOFF_LOWPASS_HZ, FILTER_ORDER);
     HiPassInit(1000000.0f / SAMPLE_PERIOD_US, CUTOFF_HIGHPASS_HZ, FILTER_ORDER);
+#endif
+
+#if USE_NOTCH
+    IirNotchInit(&notch_filter, 1000000.0f / SAMPLE_PERIOD_US, NOTCH_FREQ_HZ, NOTCH_GAIN_DB, NOTCH_Q);
 #endif
 
 #if TEST_MODE == MODE_DETECTOR

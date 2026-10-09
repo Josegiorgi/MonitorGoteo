@@ -1,3 +1,0 @@
-| detecciones_ambos | solo_c1 | solo_c2 | pct_ambos | desfase_medio_ms | desfase_max_abs_ms | detecciones_firmware_opt | detecciones_firmware_bpw |
-|---|---|---|---|---|---|---|---|
-| 31 | 0 | 0 | 100.0 | 3.17 | 4.80 | 21 | 62 |

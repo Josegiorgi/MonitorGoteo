@@ -29,6 +29,7 @@
  * |:----------:|:----------------------------------------------------------------------|
  * | 15/03/2024 | Document creation		                         						|
  * | 23/09/2026 | Filter instances (iir_filter_t) to filter several signals at once. The original API is kept (Josefina Giorgi) |
+ * | 09/10/2026 | IirNotchInit(): notch filter instance (e.g. to remove the 100Hz mains hum) (Josefina Giorgi) |
  *
  **/
 
@@ -79,10 +80,22 @@ void IirLowPassInit(iir_filter_t *filter, float sample_frec, float cut_frec, fil
 void IirHiPassInit(iir_filter_t *filter, float sample_frec, float cut_frec, filter_order_t order);
 
 /**
+ * @brief Initialize a Notch filter instance (2nd order, its state is reset to zero). It removes a
+ * narrow band around notch_frec, e.g. the 100Hz of the mains hum. Use IirFilter() to apply it.
+ *
+ * @param filter        Filter instance
+ * @param sample_frec   Signal's sample frequency
+ * @param notch_frec    Frequency to remove
+ * @param gain_db       Gain at notch_frec, in dB (negative: -100 makes a practically complete notch)
+ * @param q             Q factor: bandwidth is about notch_frec / q (higher Q = narrower notch)
+ */
+void IirNotchInit(iir_filter_t *filter, float sample_frec, float notch_frec, float gain_db, float q);
+
+/**
  * @brief Apply a filter instance to a signal array. The state is kept between calls, so it can
  * be called with one sample at a time (signal_lenght = 1) for real time filtering.
  *
- * @param filter            Filter instance (initialized with IirLowPassInit() or IirHiPassInit())
+ * @param filter            Filter instance (initialized with IirLowPassInit(), IirHiPassInit() or IirNotchInit())
  * @param input_signal      Input signal array
  * @param output_signal     Filtered signal array (can be the same array as input_signal)
  * @param signal_lenght     Number of samples of both signals
