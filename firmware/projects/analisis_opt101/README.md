@@ -23,6 +23,11 @@ Tres registros, en mV, una muestra por línea (formato del serial plotter; solo 
 
 La correlación cruzada con plantilla se rehace más adelante, sobre la señal ya filtrada.
 
+
+## Ángulo de pérdida de detección
+
+[`analizar_angulo.py`](analizar_angulo.py) analiza las tomas hechas con `MODE_ANGLE` de `prueba_opt101` (línea `deteccion,0,0,pitch`, con el MPU-6000 en la carcasa): ve a qué pitch el detector deja de detectar gotas y sugiere el ángulo de aviso. En este orden: carga de las tomas (con mediana móvil sobre el pitch para sacar los picos de la mano), ritmo del goteo, cortes de detección y el pitch en cada uno, tasa de detección según el pitch, gráficos (se guardan como `angulo_tomas.png` y `angulo_tasa.png`) y ángulo de aviso con margen e histéresis. Para sumar tomas nuevas, agregarlas al diccionario `TOMAS` al principio del archivo.
+
 ## Cómo usarlo
 
 Requiere Python 3 con `numpy` y `matplotlib` (no hace falta `scipy`). En VS Code, con la extensión de Python, cada bloque `# %%` es una celda con link **Run Cell**; los gráficos salen en la Interactive Window.
