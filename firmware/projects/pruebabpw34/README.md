@@ -5,8 +5,8 @@ Proyecto de prueba del sensor óptico de gota del monitor de goteo usando dos fo
 Lee los dos canales del ADC con un período fijo (timer) y transmite ambos valores en una línea `canal1,canal2` (el serial plotter los grafica como dos series). Tiene tres modos, seleccionables con `TEST_MODE`:
 
 - **`MODE_RAW`**: los valores calibrados en mV, sin filtrar.
-- **`MODE_FILTERED`**: cada canal pasa por un pasabanda Butterworth de 4° orden (pasaaltos de 5 Hz + pasabajos de 260 Hz) y se transmite en mV enteros, centrado en 0 (sin la continua). Los cortes salen del espectro de energía de la gota promedio medido en [`analisis_bpw34`](../analisis_bpw34).
-- **`MODE_DETECTOR`** (por defecto): además del pasabanda, cada canal pasa por un detector de correlación cruzada con **su propia plantilla** de la gota ([`drop_template.h`](main/drop_template.h), el promedio de 7 gotas filtradas reales). Cuando **cualquiera de los dos canales** detecta una gota, se prende un LED (`GPIO_10`) durante 200 ms. Sigue transmitiendo los dos canales filtrados, igual que `MODE_FILTERED`.
+- **`MODE_FILTERED`**: cada canal pasa por un pasabanda Butterworth de 4° orden (pasaaltos de 20 Hz + pasabajos de 260 Hz) y se transmite en mV enteros, centrado en 0 (sin la continua). Los cortes salen del espectro de energía de la gota promedio medido en [`analisis_bpw34`](../analisis_bpw34).
+- **`MODE_DETECTOR`** (por defecto): además del pasabanda, cada canal pasa por un detector de correlación cruzada con **su propia plantilla** de la gota ([`drop_template.h`](main/drop_template.h), el promedio de 101 gotas del canal 1 y 126 del canal 2, filtradas y reales). Cuando **cualquiera de los dos canales** detecta una gota, se prende un LED (`GPIO_10`) durante 200 ms. Sigue transmitiendo los dos canales filtrados, igual que `MODE_FILTERED`.
 
 ## Cableado
 
@@ -104,7 +104,7 @@ Están al principio de [`pruebabpw34.c`](main/pruebabpw34.c):
 | `ADC_CHANNEL_BPW34_1` / `ADC_CHANNEL_BPW34_2` | Canales ADC de cada amplificador (`CH0` a `CH3` = `GPIO_0` a `GPIO_3`) |
 | `TEST_MODE` | `MODE_RAW`, `MODE_FILTERED` o `MODE_DETECTOR` |
 | `SAMPLE_PERIOD_US` | Período entre muestras (por defecto 1200 us, ~833 Hz). No puede bajar de ~1 ms: con la consola a 115200 baudios, imprimir la línea con los dos valores tarda hasta ~960 us |
-| `CUTOFF_HIGHPASS_HZ` | Corte del pasaaltos (por defecto 5 Hz). Saca la continua y la deriva lenta; en el análisis, solo el 5% de la energía de la gota queda por debajo de ~6-9 Hz |
+| `CUTOFF_HIGHPASS_HZ` | Corte del pasaaltos (por defecto 20 Hz, antes 5 Hz: con los registros del 14/10/2026 el 5% de la energía de la gota queda por debajo de ~17 Hz y 10-20 Hz da más margen de detección que 5 Hz; ver `analisis_bpw34/analizar_crudo_bpw34.py`). Saca la continua y la deriva lenta; en el análisis, solo el 5% de la energía de la gota queda por debajo de ~6-9 Hz |
 | `CUTOFF_LOWPASS_HZ` | Corte del pasabajos (por defecto 260 Hz). El 95% de la energía de la gota queda por debajo de ~245-261 Hz; por encima solo hay ruido blanco hasta Nyquist (~417 Hz) |
 | `FILTER_ORDER` | Orden del Butterworth, para ambos filtros (por defecto `ORDER_4`) |
 | `DETECTION_LED` | LED que se prende al detectar una gota (por defecto `LED_2` = GPIO_10; evitar `LED_1` = GPIO_20, que es el RX de la UART de la consola) |
@@ -116,11 +116,13 @@ Están al principio de [`pruebabpw34.c`](main/pruebabpw34.c):
 ### Detalles del filtrado
 
 - **Un filtro por canal.** Se usan las instancias de filtro (`iir_filter_t`) del componente `iir_filter` de middleware: cada canal tiene su propio pasabajos y su propio pasaaltos, con su propia memoria. Las funciones originales `LowPassFilter()` / `HiPassFilter()` tienen un único filtro interno y mezclarían los dos canales.
-- **Se resta el nivel base antes de filtrar.** Los biquads de esp-dsp son de forma directa II: con ~1200 mV de continua a la entrada y un pasaaltos tan bajo (5 Hz contra fs ≈ 833 Hz), su estado interno crece a cientos de miles y en `float` se pierde resolución. Simulado en `float` de 32 bits con un registro real, el error baja de ~0.13 mV rms (picos de ~3 mV) a ~0.001 mV al restar el nivel base medido al arrancar.
+- **Se resta el nivel base antes de filtrar.** Los biquads de esp-dsp son de forma directa II: con ~1200 mV de continua a la entrada y un pasaaltos tan bajo (20 Hz contra fs ≈ 833 Hz), su estado interno crece a cientos de miles y en `float` se pierde resolución. Simulado en `float` de 32 bits con un registro real, el error baja de ~0.13 mV rms (picos de ~3 mV) a ~0.001 mV al restar el nivel base medido al arrancar.
 - **Salida en mV enteros.** A diferencia del OPT101, que necesitaba decimales, acá la gota mueve cientos de mV y el ruido es de unos pocos mV, así que un decimal no aporta nada y la línea no entraría en el período de muestreo.
 - **Un detector por canal.** Igual que con los filtros, se usan las instancias (`xcorr_detector_t`) del componente `xcorr_detector`: cada canal tiene su plantilla, su umbral y su propio estado. Las funciones originales (`XCorrInit()` / `XCorrProcess()`) siguen existiendo para `prueba_opt101`.
-- **Las plantillas dependen de toda la cadena:** `SAMPLE_PERIOD_US`, los cortes del pasabanda y el antialias RC. Si cambia algo de eso, hay que regenerarlas con la última celda de `analisis_bpw34`.
-- **Verificación:** simulando en Python la misma lógica del detector sobre los registros filtrados, da 0 detecciones sin goteo y 7 de 7 con goteo en los dos canales. El LED se prende ~25 ms después del mínimo de la gota (el detector necesita recibir la gota entera antes de compararla con la plantilla).
+- **Las plantillas dependen de toda la cadena:** `SAMPLE_PERIOD_US`, los cortes del pasabanda y el antialias RC. Si cambia algo de eso, hay que regenerarlas con la última celda de [`analizar_correlacion_bpw34.py`](../analisis_bpw34/analizar_correlacion_bpw34.py).
+- **Umbrales:** 160 (canal 1) y 140 (canal 2), 3 veces el ruido máximo de la correlación de cada canal (54 y 47). El detector avisa si cualquiera de los dos canales pasa su umbral, así que una gota débil en uno no se pierde si el otro la ve. Antes eran 300.
+- **Una detección por gota:** cada canal detecta por su cuenta, pero la gota se avisa una sola vez: si la ve solo el canal 1, solo el canal 2 o los dos (que disparan con ~5 ms de diferencia), el tercer valor de la línea muestra un único pico de 1000. Tras avisar, se ignora la detección de cualquiera de los dos canales durante `XCORR_REFRACTORY_MS` (100 ms). Antes, cuando disparaban los dos canales, aparecían dos picos juntos.
+- **Verificación:** simulando en Python la misma lógica del detector sobre los registros filtrados, da 0 detecciones sin goteo (dos registros) y detecta 68 de 68 gotas con el dispositivo fijo, 70 de 71 moviéndolo y 33 de 33 en una toma de validación. La gota que falta es una de ~186 mV que pasó entre los dos fotodiodos. El LED se prende ~25 ms después del mínimo de la gota (el detector necesita recibir la gota entera antes de compararla con la plantilla).
 - **Qué esperar:** según el análisis, el filtro saca la deriva pero mejora la relación señal/ruido menos de 1 dB. Además, el pasaaltos deja una cola lenta después de cada gota (~50-100 mV durante más de 20 ms).
 
 ## Cómo usarlo

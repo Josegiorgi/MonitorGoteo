@@ -20,6 +20,10 @@ Compara un registro **sin goteo** contra uno **con goteo** (CSV `canal1,canal2,0
 
 Los gráficos de las secciones de señales crudas (1 a 9) están desactivados (comentados, con la marca `[gráfico desactivado: ...]`); las cuentas y los `print` siguen corriendo. Se vuelven a ver descomentando esas líneas.
 
+## Ángulo de pérdida de detección
+
+[`analizar_angulo_bpw34.py`](analizar_angulo_bpw34.py) es la copia para el BPW34 de [`../analisis_opt101/analizar_angulo.py`](../analisis_opt101/analizar_angulo.py). Analiza las tomas hechas con `MODE_ANGLE` de [`pruebabpw34`](../pruebabpw34) (línea `deteccion,0,0,pitch`, con el MPU-6000 en la carcasa): ve a qué pitch el detector deja de detectar gotas y sugiere el ángulo de aviso. La diferencia con el del OPT101 es la configuración: `SAMPLE_PERIOD_US = 1200` y `PLOT_DECIMATION = 8` (los de `pruebabpw34`), la carpeta de las tomas y los nombres de los PNG de salida (`angulo_bpw34_tomas.png`, `angulo_bpw34_tasa.png`). Antes de correrlo hay que ajustar los nombres de los CSV en `TOMAS`.
+
 ## Requisitos y uso
 
 - Python 3 con `numpy` y `matplotlib` (no hace falta `scipy`), y la extensión de **Python** de VS Code.
