@@ -51,16 +51,21 @@ COL_PITCH = 3                # columna 4 del CSV
 
 VENTANA_MEDIANA = 5          # líneas del filtro de mediana del pitch (5 líneas ~ 50 ms): saca los picos aislados
 FACTOR_CORTE = 2.5           # un "corte" es un intervalo entre gotas mayor a FACTOR_CORTE x el período típico
+ANALIZAR_LADO_NEGATIVO = False  # por ahora se analiza solo el lado positivo: en teoría el negativo debería ser simétrico, pero no se
+                             # puede comprobar con el prototipo (se mide después con el acelerómetro nuevo). Con True se analiza
+                             # también (cortes, aviso y rangos de pitch negativos)
 PITCH_MIN_CORTE_ANGULO = 3.0 # un corte cuenta como "por ángulo" del lado positivo si el pitch llega al menos a esto durante el corte
-PITCH_MIN_CORTE_NEGATIVO = 2.0  # y del lado negativo si llega al menos a -esto. Los dos valores salen de mirar los gráficos del BPW34
-                             # (el lado negativo empieza a fallar antes que el positivo). Con el OPT101 todavía no hay tomas con pitch negativo
+PITCH_MIN_CORTE_NEGATIVO = 2.0  # y del lado negativo (solo si ANALIZAR_LADO_NEGATIVO) si llega al menos a -esto
 PITCH_ARRANQUE_MIN = 1.0     # además, la última gota antes del corte tiene que estar ya inclinada al menos esto de ese lado
                              # (descarta cortes con el pitch cerca de 0°: ahí la causa es otra, ej. el arranque del goteo)
 SUBIDA_MIN_GRADOS = 0.2      # y el pitch tiene que irse al menos esto más allá del de la última gota
 MARGEN_AVISO_GRADOS = 0.5    # el aviso se pone esto antes (del lado del reposo) del ángulo de pérdida más cercano al reposo
 HISTERESIS_GRADOS = 0.5      # el aviso se apaga esto por debajo del ángulo en que se enciende
-EXCLUIR_CORTES = {}          # cortes que no son por ángulo (ej. cortaste el flujo), por toma: {"Toma 1": [4]} (número de la tabla)
-INTERVALOS_PITCH = [-5.0, -4.0, -3.0, -2.5, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 14.0]   # rangos para la tasa de detección (incluye pitch negativo por si hay tomas hacia ese lado)
+EXCLUIR_CORTES = {}          # cortes que no son por ángulo (ej. cortaste el flujo), por toma: {"Toma 4": [2]} (número de la tabla).
+                             # El arranque del goteo ya lo descarta PITCH_ARRANQUE_MIN: la lista queda para casos que el criterio no resuelva
+INTERVALOS_PITCH_NEGATIVO = [-5.0, -4.0, -3.0, -2.5, -2.0, -1.0]                                   # rangos de pitch negativo (solo si ANALIZAR_LADO_NEGATIVO)
+INTERVALOS_PITCH_POSITIVO = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 14.0]                # rangos de pitch positivo para la tasa de detección
+INTERVALOS_PITCH = (INTERVALOS_PITCH_NEGATIVO if ANALIZAR_LADO_NEGATIVO else []) + INTERVALOS_PITCH_POSITIVO
 
 GUARDAR_PNG = True           # guarda los gráficos como PNG en esta carpeta
 SALIDA = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
@@ -141,7 +146,7 @@ for nombre, d in tomas.items():
         tramo = p[a:b + 1]
         sube = (tramo.max() >= PITCH_MIN_CORTE_ANGULO and p[a] >= PITCH_ARRANQUE_MIN
                 and tramo.max() - p[a] >= SUBIDA_MIN_GRADOS)
-        baja = (tramo.min() <= -PITCH_MIN_CORTE_NEGATIVO and p[a] <= -PITCH_ARRANQUE_MIN
+        baja = (ANALIZAR_LADO_NEGATIVO and tramo.min() <= -PITCH_MIN_CORTE_NEGATIVO and p[a] <= -PITCH_ARRANQUE_MIN
                 and p[a] - tramo.min() >= SUBIDA_MIN_GRADOS)
         lado = "+" if sube and not baja else "-" if baja and not sube else ""
         excluido = n in EXCLUIR_CORTES.get(nombre, [])
@@ -250,10 +255,12 @@ plt.show()
 # ------------------------------------------------------------------------------------------
 # Ángulo de pérdida de un corte "por ángulo": pitch de la última gota detectada antes del corte (el
 # pitch se aleja del reposo y deja de detectar). Ángulo de recuperación: pitch de la primera gota después.
-# Se analiza cada lado por separado: el positivo y el negativo no pierden a la misma inclinación.
+# Cada lado se analiza por separado (por ahora solo el positivo, ver ANALIZAR_LADO_NEGATIVO).
 avisos = {}   # lado -> (aviso conservador, aviso típico), para el gráfico
 for lado, nombre_lado in (("+", "POSITIVO"), ("-", "NEGATIVO")):
-    eventos = [(nombre, c) for nombre, d in tomas.items() for c in d["cortes"] if c["por_angulo"] and c["lado"] == lado]
+    if lado == "-" and not ANALIZAR_LADO_NEGATIVO:
+        continue
+    eventos =[(nombre, c) for nombre, d in tomas.items() for c in d["cortes"] if c["por_angulo"] and c["lado"] == lado]
     print(f"\n=== Lado {nombre_lado} ===")
     if not eventos:
         print("  Sin cortes por ángulo de este lado en las tomas cargadas.")
@@ -281,7 +288,7 @@ print("\nPitch en reposo (al principio y al final de cada toma; el 0° del MPU p
 for nombre, d in tomas.items():
     n = int(0.5 / DT_LINEA_S)
     print(f"  {nombre}: al inicio {np.median(d['pitch'][:n]):.1f}°, al final {np.median(d['pitch'][-n:]):.1f}°")
-print("OJO: son pocos cortes por lado y las tomas no dan el mismo ángulo de pérdida (ver el resumen por lado).")
+print("OJO: son pocos cortes por lado. Conviene sumar tomas con el mismo montaje y el mismo goteo.")
 
 
 # %%
