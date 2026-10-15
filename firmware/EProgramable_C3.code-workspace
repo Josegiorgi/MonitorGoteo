@@ -13,6 +13,12 @@
             "path": "./u8g2_hal"
         },
         {
+            "path": "./modules/interfaz_usuario"
+        },
+        {
+            "path": "./projects/prueba_interfaz"
+        },
+        {
             "path": "./projects/Display"
         },
         {
