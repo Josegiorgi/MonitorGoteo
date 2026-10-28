@@ -49,7 +49,7 @@ static const uint16_t volumenes_ml[] = {50, 100, 250, 500, 1000};   /* sachets h
 static const parametro_t parametros[CONFIG_PARAMETROS] = {
     {"Factor de goteo",  "gtt/mL", factores_goteo, sizeof(factores_goteo) / sizeof(factores_goteo[0]), 0, 0, 0},
     {"Volumen total",    "mL",     volumenes_ml,   sizeof(volumenes_ml) / sizeof(volumenes_ml[0]),     0, 0, 0},
-    {"Tiempo total",     "h",      NULL,           0,                                                  30, 1440, 30},   // en minutos, de a media hora
+    {"Tiempo total",     "h:min",  NULL,           0,                                                  10, 1440, 10},   // en minutos, de 10 min a 24 h
 };
 
 /* Estado de la navegación */
@@ -109,7 +109,7 @@ static const char *TextoAviso(const ui_datos_t *d) {
         switch (d->alarma) {
         case UI_ALARMA_OCLUSION:         return "! OCLUSION";
         case UI_ALARMA_DESVIACION_FLUJO: return "! DESVIACION FLUJO";
-        case UI_ALARMA_FIN_SACHET:       return "! FIN DE SACHET";
+        case UI_ALARMA_FIN_SACHET:       return "! FIN SACHET";
         case UI_ALARMA_BATERIA_BAJA:     return "! BATERIA BAJA";
         default: break;
         }
@@ -183,8 +183,8 @@ static void PantallaAlarma(const ui_datos_t *d) {
         snprintf(detalle, sizeof(detalle), "%+d%% (obj %u mL/h)", pct, d->flujo_objetivo_mlh);
         break;
     case UI_ALARMA_FIN_SACHET:
-        titulo = "FIN DE SACHET";
-        snprintf(detalle, sizeof(detalle), "Volumen %u mL completo", d->volumen_total_ml);
+        titulo = "FIN SACHET";
+        snprintf(detalle, sizeof(detalle), "%u mL completados", d->volumen_total_ml);
         break;
     case UI_ALARMA_BATERIA_BAJA:
         nivel = "ALARMA MEDIA";
@@ -228,7 +228,7 @@ static void ActualizarCaudalObjetivo(ui_datos_t *d) {
 static void ValorTexto(ui_datos_t *d, uint8_t i, char *texto, size_t tam) {
     uint16_t valor = *Campo(d, i);
     if (i == 2) {
-        snprintf(texto, tam, (valor % 60) ? "%u.5" : "%u", valor / 60);
+        snprintf(texto, tam, "%u:%02u", valor / 60, valor % 60);   // horas:minutos
     } else {
         snprintf(texto, tam, "%u", valor);
     }

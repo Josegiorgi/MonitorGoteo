@@ -61,7 +61,7 @@ typedef struct {
     // Configuración de la infusión (se edita en Config)
     uint16_t factor_goteo;         /*!< Gotas por mL del equipo (gtt/mL): 10, 15, 20 o 60 */
     uint16_t volumen_total_ml;     /*!< Volumen programado, en mL: 50, 100, 250, 500 o 1000 */
-    uint16_t duracion_min;         /*!< Tiempo total programado, en minutos (se carga en horas, de a 0,5 h) */
+    uint16_t duracion_min;         /*!< Tiempo total programado, en minutos: de 10 min a 24 h, de a 10 min (se muestra como h:mm) */
     uint16_t flujo_objetivo_mlh;   /*!< Caudal objetivo en mL/h: lo calcula el equipo (volumen / tiempo), no se carga */
     uint16_t umbral_sin_gotas_s;   /*!< Segundos sin gotas para dar la alarma de oclusión */
 

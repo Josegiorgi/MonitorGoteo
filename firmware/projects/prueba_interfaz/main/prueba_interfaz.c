@@ -36,6 +36,7 @@
 #include "esp_system.h"
 #include "encoder.h"
 #include "ui.h"
+#include "goteo.h"
 
 /*==================[macros and definitions]=================================*/
 #define ENCENDIDO_MS          3000  /*!< Tiempo que hay que mantener apretado el botón para encender */
@@ -44,6 +45,9 @@
 #define PERIODO_ANIMACION_MS  42    /*!< Cada cuánto avanza un cuadro de la animación del inicio (como en Lopaka) */
 #define PERIODO_TICK_MS       1000  /*!< Cada cuánto se simula el sensado y se actualiza la interfaz */
 
+#define FIN_SACHET_SIN_GOTAS_S 10   /*!< Segundos sin gotas, con el volumen completo, para dar el fin de sachet */
+#define DESVIACION_MAX_PCT    10    /*!< Desvío del caudal respecto del objetivo a partir del cual hay alarma */
+#define BATERIA_BAJA_PCT      10    /*!< Carga de batería a partir de la cual hay alarma */
 #define TOLERANCIA_GRADOS     2.5f  /*!< Ángulo máximo respecto de la vertical para dar la colocación por correcta */
 
 #define PROBAR_ALARMAS        1     /*!< 1: salta al Monitoreo y girar el encoder recorre las alarmas; 0: flujo normal */
@@ -59,6 +63,8 @@ static ui_chequeo_t chequeos[UI_CHEQUEOS_MAX] = {
     {"FOTO", UI_CHEQUEO_PENDIENTE},
 };
 static bool encoder_ok = false;
+static bool midiendo = false;          /*!< true desde que empieza el Ajuste de goteo hasta que termina la infusión */
+static float gotas_pendientes = 0.0f;  /*!< parte fraccionaria de las gotas simuladas que todavía no cayeron */
 
 /*==================[internal functions definition]==========================*/
 static void DatosIniciales(void) {
@@ -131,17 +137,90 @@ static void AutotestInicio(void) {
     } while (t_ms < DURACION_INICIO_MS || !TodosOk());
 }
 
-/** Inventa las mediciones que después dará el módulo de sensado, una vez por segundo. */
-static void SimularSensado(void) {
-    // Monitoreo: el tiempo avanza y el caudal medido es el objetivo
-    if (datos.infusion_configurada && !datos.en_pausa && datos.alarma == UI_ALARMA_NINGUNA &&
-        UI_PantallaActual() != UI_PANTALLA_AJUSTE_GOTEO) {
-        datos.tiempo_s++;
-        datos.flujo_mlh = datos.flujo_objetivo_mlh;
-        if (datos.volumen_ml + 1 < datos.volumen_total_ml) {
-            datos.volumen_ml++;
+/** Empieza a contar gotas. Se llama al entrar al Ajuste de goteo: desde que se abre el clamp ya
+ * pasa líquido al paciente, así que el volumen cuenta desde acá. El tiempo, no (ver Monitoreo). */
+static void IniciarMedicion(void) {
+    Goteo_Iniciar(datos.factor_goteo, esp_timer_get_time());
+    gotas_pendientes = 0.0f;
+    midiendo = true;
+}
+
+/** Mira si cambió la pantalla por un evento y arranca lo que corresponda. */
+static void RevisarTransiciones(ui_pantalla_t antes) {
+    ui_pantalla_t ahora = UI_PantallaActual();
+    if (antes == UI_PANTALLA_RESUMEN && ahora == UI_PANTALLA_AJUSTE_GOTEO) {
+        IniciarMedicion();
+    } else if (antes == UI_PANTALLA_AJUSTE_GOTEO && ahora == UI_PANTALLA_MONITOREO) {
+        Goteo_ReiniciarTiempo(esp_timer_get_time());   // el tiempo de la infusión arranca recién acá
+    }
+    if (!datos.infusion_configurada) {
+        midiendo = false;
+    }
+}
+
+#if !PROBAR_ALARMAS
+/** Decide la alarma según los datos calculados. Por prioridad: colocación, fin de sachet,
+ * oclusión, desviación del caudal y batería baja. */
+static ui_alarma_t DetectarAlarma(void) {
+    if (!datos.colocacion_ok) {
+        return UI_ALARMA_COLOCACION;
+    }
+    if (datos.volumen_ml >= datos.volumen_total_ml && datos.segundos_sin_gotas >= FIN_SACHET_SIN_GOTAS_S) {
+        return UI_ALARMA_FIN_SACHET;
+    }
+    if (datos.segundos_sin_gotas >= datos.umbral_sin_gotas_s) {
+        return UI_ALARMA_OCLUSION;
+    }
+    if (datos.tiempo_s >= 30 && datos.flujo_objetivo_mlh > 0) {   // con pocas gotas el promedio todavía no es confiable
+        int diferencia = abs((int)datos.flujo_mlh - (int)datos.flujo_objetivo_mlh);
+        if (diferencia * 100 / datos.flujo_objetivo_mlh > DESVIACION_MAX_PCT) {
+            return UI_ALARMA_DESVIACION_FLUJO;
         }
     }
+    if (datos.bateria_pct <= BATERIA_BAJA_PCT) {
+        return UI_ALARMA_BATERIA_BAJA;
+    }
+    return UI_ALARMA_NINGUNA;
+}
+#endif
+
+/** Una vez por segundo: inventa las gotas que después detectará el sensor (a la velocidad del
+ * objetivo) y carga en datos lo que calcula el módulo goteo: volumen, caudal, tiempo y
+ * segundos sin gotas. */
+static void SimularSensado(void) {
+    if (!midiendo) {
+        return;
+    }
+    int64_t ahora = esp_timer_get_time();
+
+    // Gotas por segundo = mL/h x gtt/mL / 3600; se reparten dentro del último segundo
+    gotas_pendientes += (float)datos.flujo_objetivo_mlh * datos.factor_goteo / 3600.0f;
+    int n = (int)gotas_pendientes;
+    gotas_pendientes -= n;
+    for (int i = 0; i < n; i++) {
+        Goteo_Gota(ahora - (int64_t)(n - 1 - i) * 1000000 / n);
+    }
+
+#if PROBAR_ALARMAS
+    if (datos.alarma != UI_ALARMA_NINGUNA) {
+        return;   // mientras se muestra una alarma de prueba no se pisan sus valores de muestra
+    }
+#endif
+    datos.volumen_ml = Goteo_VolumenMl();
+    datos.flujo_mlh = Goteo_CaudalMlh(ahora);
+    datos.segundos_sin_gotas = Goteo_SegundosSinGotas(ahora);
+    datos.tiempo_s = (UI_PantallaActual() == UI_PANTALLA_AJUSTE_GOTEO) ? 0 : Goteo_TiempoS(ahora);
+
+#if !PROBAR_ALARMAS
+    // Durante el Ajuste de goteo no hay alarmas: la enfermera puede cerrar o abrir el clamp
+    // a propósito, y un caudal bajo o sin gotas ahí no es un problema
+    if (UI_PantallaActual() != UI_PANTALLA_AJUSTE_GOTEO) {
+        ui_alarma_t alarma = DetectarAlarma();
+        if (datos.alarma != UI_ALARMA_COLOCACION || alarma == UI_ALARMA_COLOCACION) {
+            datos.alarma = alarma;   // la de colocación se mantiene hasta que el usuario la confirma
+        }
+    }
+#endif
 }
 
 #if PROBAR_ALARMAS
@@ -197,8 +276,7 @@ void app_main(void) {
 #if PROBAR_ALARMAS
     // Se saltea el autotest, la colocación y la configuración: directo al Monitoreo con la infusión en curso
     datos.infusion_configurada = true;
-    datos.volumen_ml = 250;
-    datos.flujo_mlh = datos.flujo_objetivo_mlh;
+    IniciarMedicion();
     UI_Ir(UI_PANTALLA_MONITOREO, &datos);
 #else
     UI_Ir(UI_PANTALLA_AUTOTEST, &datos);
@@ -210,8 +288,8 @@ void app_main(void) {
         // Espera un evento hasta que toque el próximo tick
         int64_t resta_ms = PERIODO_TICK_MS - (esp_timer_get_time() - ultimo_tick_us) / 1000;
         if (resta_ms > 0 && Encoder_Leer(&ev, pdMS_TO_TICKS(resta_ms))) {
-#if PROBAR_ALARMAS
             ui_pantalla_t pantalla = UI_PantallaActual();
+#if PROBAR_ALARMAS
             bool navegando_alarmas = pantalla == UI_PANTALLA_MONITOREO || pantalla == UI_PANTALLA_ALARMA ||
                                      pantalla == UI_PANTALLA_COLOCACION;
             if (navegando_alarmas && (ev == ENC_GIRO_HORARIO || ev == ENC_GIRO_ANTIHORARIO)) {
@@ -223,6 +301,7 @@ void app_main(void) {
 #else
             UI_Evento(ev, &datos);
 #endif
+            RevisarTransiciones(pantalla);
         }
 
         if ((esp_timer_get_time() - ultimo_tick_us) / 1000 >= PERIODO_TICK_MS) {

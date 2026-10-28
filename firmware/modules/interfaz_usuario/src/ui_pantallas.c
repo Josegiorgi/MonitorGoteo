@@ -155,7 +155,7 @@ void Pant_Resumen(u8g2_t *g, const ui_datos_t *d) {
     u8g2_DrawStr(g, 6, 27, texto);
     snprintf(texto, sizeof(texto), "Vol %u mL", d->volumen_total_ml);
     u8g2_DrawStr(g, 6, 38, texto);
-    snprintf(texto, sizeof(texto), (d->duracion_min % 60) ? "Tiempo %u.5 h" : "Tiempo %u h", d->duracion_min / 60);
+    snprintf(texto, sizeof(texto), "Tiempo %u:%02u h", d->duracion_min / 60, d->duracion_min % 60);
     u8g2_DrawStr(g, 6, 49, texto);
     Pie(g, "Pulsar: iniciar");
     u8g2_SendBuffer(g);
@@ -166,11 +166,11 @@ void Pant_AjusteGoteo(u8g2_t *g, uint16_t gotas_min, uint16_t volumen_ml, uint16
     uint8_t ancho_numero, x;
 
     Preparar(g);
-    Cabecera(g, "Ajuste de goteo", NULL);
+    snprintf(texto, sizeof(texto), "FG %u", factor_goteo);   // factor de goteo del equipo, arriba a la derecha
+    Cabecera(g, "Ajuste de goteo", texto);
 
-    // El cálculo, con los datos que cargó la enfermera: volumen en tiempo, y el factor del equipo
-    snprintf(texto, sizeof(texto), (duracion_min % 60) ? "%u mL en %u.5 h, FG %u" : "%u mL en %u h, FG %u",
-             volumen_ml, duracion_min / 60, factor_goteo);
+    // El cálculo, con los datos que cargó la enfermera: el volumen en el tiempo indicado
+    snprintf(texto, sizeof(texto), "%u mL en %u:%02u h", volumen_ml, duracion_min / 60, duracion_min % 60);
     u8g2_SetFont(g, u8g2_font_6x10_tr);
     u8g2_DrawStr(g, Centrar(g, texto), 26, texto);
 
@@ -197,13 +197,12 @@ void Pant_Alarma(u8g2_t *g, bool invertida, const char *nivel, const char *titul
     u8g2_DrawStr(g, 2, 11, nivel);
     u8g2_DrawHLine(g, 0, Y_LINEA_CAB, ANCHO);
 
-    // El título entra con la fuente grande si es corto; si no, con una más chica
+    // Todas las alarmas usan la misma letra: el título más largo ("BATERIA BAJA") mide 120 px y
+    // el detalle más largo entra en 124 px, así que no hace falta achicar ninguna
     u8g2_SetFont(g, u8g2_font_10x20_tr);
-    if (u8g2_GetStrWidth(g, titulo) > ANCHO_UTIL) {
-        u8g2_SetFont(g, u8g2_font_9x15_tr);
-    }
     u8g2_DrawStr(g, Centrar(g, titulo), 38, titulo);
-    TextoCentrado(g, 49, detalle, u8g2_font_6x10_tr, u8g2_font_5x7_tr);
+    u8g2_SetFont(g, u8g2_font_6x10_tr);
+    u8g2_DrawStr(g, Centrar(g, detalle), 49, detalle);
 
     Pie(g, "Pulsar: silenciar");
     u8g2_SendBuffer(g);

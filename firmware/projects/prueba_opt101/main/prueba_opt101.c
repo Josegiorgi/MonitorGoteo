@@ -26,17 +26,18 @@
  *   una segunda serie, igual que en pruebabpw34.
  * - MODE_ANGLE: detecta las gotas igual que MODE_DETECTOR y transmite "deteccion,0,0,pitch": la
  *   detección (DETECTION_VALUE al detectar una gota, 0 el resto), dos columnas fijas en 0 y el pitch del acelerómetro
- *   MPU-6000 / GY-521 (I2C) en grados con un decimal. Sirve para ver a qué ángulo se dejan de
+ *   ADXL345 (I2C) en grados con un decimal. Sirve para ver a qué ángulo se dejan de
  *   detectar las gotas al inclinar el dispositivo. Se imprime una línea cada PLOT_DECIMATION
  *   muestras (~10ms); si alguna de esas muestras detectó una gota, la línea sale con la detección.
  *   El detector corre con todas las muestras.
  *
  * @note En MODE_ANGLE, ADCTask no imprime: arma las líneas y se las pasa por una cola a PlotTask,
- * y una tercera tarea (AngleTask) lee el MPU por I2C y actualiza el pitch cada 50ms. Así ni el
- * printf ni el I2C atrasan el muestreo del ADC.
+ * y una tercera tarea (AngleTask) lee el ADXL345 por I2C y actualiza el pitch cada 50ms. Así ni
+ * el printf ni el I2C atrasan el muestreo del ADC.
  *
- * @note MPU / GY-521 (solo en los modos de ángulo): VCC a 3V3, GND a GND, SCL a GPIO_7 y SDA a
- * GPIO_21. Ver ../prueba_mpu6000/README.md.
+ * @note ADXL345 (solo en los modos de ángulo): SCL a GPIO_7, SDA a GPIO_21, GND a GND y
+ * alimentación a 3V3. El pin CS va a 3V3 (modo I2C) y SDO a GND (dirección 0x53); SDO no puede
+ * quedar sin conectar. Para ver los ejes y ángulos con el dispositivo colocado, ver ../prueba_adxl345.
  *
  * @note Se usa timer_mcu en vez de vTaskDelay porque el pulso de la gota dura pocos
  * milisegundos: con vTaskDelay, el período mínimo real queda atado al tick de FreeRTOS, y pedir
@@ -106,23 +107,22 @@
 #include "drop_template.h"
 #include <math.h>
 #include "i2c_mcu.h"
-#include "mpu6050.h"
+#include "adxl345.h"
 /*==================[macros and definitions]=================================*/
 #define MODE_RAW               0 /*!< Transmite el valor calibrado en mV, sin filtrar */
 #define MODE_FILTERED          1 /*!< Pasa la lectura por el filtro pasabanda antes de transmitirla */
 #define MODE_DETECTOR          2 /*!< Detecta la gota por correlación cruzada con la plantilla y lo avisa en un segundo valor de la línea */
-#define MODE_ANGLE             3 /*!< Detecta la gota como MODE_DETECTOR y transmite "deteccion,0,0,pitch" (pitch del MPU) */
+#define MODE_ANGLE             3 /*!< Detecta la gota como MODE_DETECTOR y transmite "deteccion,0,0,pitch" (pitch del acelerómetro) */
 
 #define TEST_MODE              MODE_ANGLE /*!< Modo activo. Cambiar acá para pasar de etapa. */
 
 /* Parámetros de MODE_ANGLE */
 #define ANGLE_UPDATE_MS        50    /*!< Cada cuánto se actualiza el pitch (el ángulo cambia mucho más lento que la señal, así que no hace falta más rápido) */
-#define ANGLE_I2C_FREQ_HZ      100000 /*!< Velocidad del I2C del MPU. 100 kHz en vez de los 400 kHz por defecto: tolera mejor cables largos o soldaduras flojas */
+#define ANGLE_I2C_FREQ_HZ      100000 /*!< Velocidad del I2C del acelerómetro. 100 kHz en vez de los 400 kHz por defecto: tolera mejor cables largos o soldaduras flojas */
 #define ANGLE_RETRY_MS         200   /*!< Espera tras una lectura fallida antes de reintentar */
 #define ANGLE_FAIL_LIMIT       3     /*!< Lecturas fallidas seguidas tras las que el pitch pasa a NaN */
 #define PLOT_DECIMATION        14   /*!< Se imprime 1 línea cada N muestras (14 x 0.7ms ~ 10ms, ~100 líneas/s), con la detección "pegada": si hubo gota en las N muestras, sale DETECTION_VALUE en esa línea. La línea "500,0,0,-12.3" ocupa ~15 caracteres, ~1.3ms a 115200 baudios, así que la UART queda con mucho margen */
 #define PLOT_QUEUE_LEN         32    /*!< Líneas que puede acumular la cola entre ADCTask y la tarea que imprime. Si se llena, se descartan líneas del plotter (la detección no se ve afectada) */
-#define ACCEL_LSB_PER_G        16384.0f /*!< Sensibilidad del acelerómetro en +-2g (MPU6050_ACCEL_FS_2) */
 #define ANGLE_AVG_SAMPLES      8     /*!< Lecturas del acelerómetro que se promedian por cada ángulo, para filtrar vibraciones */
 #define RAD_TO_DEG             57.29578f
 
@@ -267,6 +267,33 @@ static void ADCTask(void *pvParameter) {
 }
 
 #if TEST_MODE == MODE_ANGLE
+/** @brief Inicializa el acelerómetro ADXL345 (busca el chip en 0x53 y 0x1D).
+ *  @return true si el chip respondió */
+static bool AngleSensorInit(void) {
+    return ADXL345_Init();
+}
+
+/** @brief Lee la aceleración de los tres ejes en g, promediando ANGLE_AVG_SAMPLES lecturas para
+ *  filtrar vibraciones. Con el equipo quieto, el eje que apunta hacia arriba da +1 g.
+ *  @return false si alguna lectura falló */
+static bool AngleSensorRead(float *ax, float *ay, float *az) {
+    float sx = 0, sy = 0, sz = 0;
+    for (int i = 0; i < ANGLE_AVG_SAMPLES; i++) {
+        float x, y, z;
+        if (!ADXL345_ReadAccel(&x, &y, &z)) {
+            return false;
+        }
+        sx += x;
+        sy += y;
+        sz += z;
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    *ax = sx / ANGLE_AVG_SAMPLES;
+    *ay = sy / ANGLE_AVG_SAMPLES;
+    *az = sz / ANGLE_AVG_SAMPLES;
+    return true;
+}
+
 /** @brief Tarea que lee el acelerómetro cada ANGLE_UPDATE_MS y guarda el pitch (en grados, con
  *  signo) en pitch_deg. Corre con menos prioridad que ADCTask, así la lectura por I2C no atrasa
  *  el muestreo del ADC. */
@@ -275,35 +302,16 @@ static void AngleTask(void *pvParameter) {
         printf("Error: no se pudo inicializar el bus I2C (SDA=GPIO_21, SCL=GPIO_7)\r\n");
         vTaskDelete(NULL);
     }
-    MPU6050_initialize();
-    if (!MPU6050_testConnection()) {
-        printf("Error: el MPU no responde. Revisar SDA/SCL, VCC y GND.\r\n");
+    if (!AngleSensorInit()) {
+        printf("Error: el acelerometro no responde. Revisar SDA/SCL, alimentacion y, en el ADXL345, CS a 3V3 y SDO a GND.\r\n");
         vTaskDelete(NULL);
     }
 
     uint8_t failures = 0;   /* lecturas fallidas seguidas */
     while (true) {
-        int32_t sx = 0, sy = 0, sz = 0;
-        bool read_ok = true;
-        for (int i = 0; i < ANGLE_AVG_SAMPLES && read_ok; i++) {
-            uint8_t raw[6];
-            /* Se lee directo con I2C_readBytes (en vez de MPU6050_getAcceleration) para poder ver
-             * si la lectura falló: devuelve la cantidad de bytes leídos, o 0 si hubo error. */
-            if (I2C_readBytes(MPU6050_DEFAULT_ADDRESS, MPU6050_RA_ACCEL_XOUT_H, 6, raw, I2C_MASTER_TIMEOUT_MS) != 6) {
-                read_ok = false;
-                break;
-            }
-            sx += (int16_t)((raw[0] << 8) | raw[1]);
-            sy += (int16_t)((raw[2] << 8) | raw[3]);
-            sz += (int16_t)((raw[4] << 8) | raw[5]);
-            vTaskDelay(pdMS_TO_TICKS(2));
-        }
-
-        if (read_ok) {
+        float ax, ay, az;
+        if (AngleSensorRead(&ax, &ay, &az)) {
             failures = 0;
-            float ax = sx / (float)ANGLE_AVG_SAMPLES / ACCEL_LSB_PER_G;
-            float ay = sy / (float)ANGLE_AVG_SAMPLES / ACCEL_LSB_PER_G;
-            float az = sz / (float)ANGLE_AVG_SAMPLES / ACCEL_LSB_PER_G;
             pitch_deg = atan2f(-ax, sqrtf(ay * ay + az * az)) * RAD_TO_DEG;
             vTaskDelay(pdMS_TO_TICKS(ANGLE_UPDATE_MS));
         } else {
@@ -357,7 +365,7 @@ void app_main(void) {
 
 #if TEST_MODE == MODE_ANGLE
     plot_queue = xQueueCreate(PLOT_QUEUE_LEN, sizeof(plot_line_t));   /* tiene que existir antes de que ADCTask empiece a usarla */
-    xTaskCreate(&AngleTask, "MPU_ANGLE", 4096, NULL, 3, NULL);
+    xTaskCreate(&AngleTask, "ACEL_ANGLE", 4096, NULL, 3, NULL);
     /* PlotTask con la prioridad de IDLE (0): printf espera activamente a la salida serie sin ceder
      * la CPU, y si el monitor del PC se atrasa esa espera puede durar segundos. Con prioridad mayor
      * IDLE no llegaba a correr y saltaba el watchdog de tareas; en 0 comparte el tiempo con IDLE. */

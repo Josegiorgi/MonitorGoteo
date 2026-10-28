@@ -16,22 +16,13 @@
             "path": "./modules/interfaz_usuario"
         },
         {
+            "path": "./modules/sensado"
+        },
+        {
             "path": "./projects/prueba_interfaz"
         },
         {
             "path": "./projects/Display"
-        },
-        {
-            "path": "./projects/1_blinking_switch"
-        },
-        {
-            "path": "projects/2_blinking_tasks"
-        },
-        {
-            "path": "projects/3_blinking_timer"
-        },
-        {
-            "path": "./projects/x_template"
         },
         {
             "path": "./projects/prueba_fdc1004"
@@ -49,7 +40,7 @@
             "path": "./projects/analisis_bpw34"
         },
         {
-            "path": "./projects/prueba_mpu6000"
+            "path": "./projects/prueba_adxl345"
         }
     ],
     "settings": {
@@ -100,7 +91,6 @@
             "spi_master.h": "c",
             "ili9341.h": "c",
             "soc_caps.h": "c",
-            "mpu6050.h": "c",
             "i2c_mcu.h": "c"
         },
         "idf.port": "COM5",

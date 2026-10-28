@@ -1,3 +1,3 @@
-idf_component_register(SRCS "3_blinking_timer.c"
+idf_component_register(SRCS "prueba_adxl345.c"
                     INCLUDE_DIRS ""
                     REQUIRES drivers middleware)

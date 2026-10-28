@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Ángulo de pérdida de detección - BPW34 + MPU-6000
+# # Ángulo de pérdida de detección - BPW34 + acelerómetro
 #
 # Este script analiza las tomas hechas con `MODE_ANGLE` de `pruebabpw34` (el firmware transmite
 # `deteccion,0,0,pitch`, igual que `prueba_opt101`; es la copia para el BPW34 de
@@ -285,7 +285,7 @@ for lado, nombre_lado in (("+", "POSITIVO"), ("-", "NEGATIVO")):
     print(f"  aviso típico     : enciende en pitch {'>=' if lado == '+' else '<='} {on_tip:.1f}° "
           f"(mediana {np.median(perdidas):.1f}°, margen {MARGEN_AVISO_GRADOS}°), apaga {on_tip - signo * HISTERESIS_GRADOS:.1f}°")
 
-print("\nPitch en reposo (al principio y al final de cada toma; el 0° del MPU puede no ser el 0° de uso):")
+print("\nPitch en reposo (al principio y al final de cada toma; el 0° del acelerómetro puede no ser el 0° de uso):")
 for nombre, d in tomas.items():
     n = int(0.5 / DT_LINEA_S)
     print(f"  {nombre}: al inicio {np.median(d['pitch'][:n]):.1f}°, al final {np.median(d['pitch'][-n:]):.1f}°")

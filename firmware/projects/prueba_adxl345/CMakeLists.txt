@@ -12,4 +12,4 @@ include_directories(${PROJECT_NAME} ../../middleware)
 set(COMPONENTS main drivers)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-project(x_template)
+project(prueba_adxl345)
