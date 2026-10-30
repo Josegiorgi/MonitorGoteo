@@ -1,0 +1,15 @@
+menu "Sensor optico"
+
+    choice OPTICAL_SENSOR_TYPE
+        prompt "Sensor de gota"
+        default OPTICAL_SENSOR_BPW34
+        help
+            Sensor optico que detecta la gota.
+
+        config OPTICAL_SENSOR_BPW34
+            bool "BPW34 (2 canales: GPIO2 y GPIO3)"
+        config OPTICAL_SENSOR_OPT101
+            bool "OPT101 (1 canal: GPIO2) - todavia no migrado, usar projects/prueba_opt101"
+    endchoice
+
+endmenu

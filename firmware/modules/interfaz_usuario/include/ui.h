@@ -120,7 +120,7 @@ typedef enum {
 
 /** @fn bool UI_Init(void)
  * @brief Inicia el I2C y la OLED y la deja en blanco.
- * @return true siempre (la OLED no informa errores al inicializar)
+ * @return true si el bus I2C quedó iniciado y la OLED respondió (usa el componente display)
  */
 bool UI_Init(void);
 

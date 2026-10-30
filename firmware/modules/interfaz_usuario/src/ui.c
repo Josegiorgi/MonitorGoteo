@@ -1,17 +1,15 @@
 /*==================[inclusions]=============================================*/
 #include <stdio.h>
 #include <string.h>
-#include "esp_idf_version.h"   // lo necesita u8g2_esp32_hal.h para elegir la API de I2C
 #include "ui.h"
 #include "ui_pantallas.h"
-#include "u8g2_esp32_hal.h"
+#include "i2c_mcu.h"
+#include "display.h"
 #include "refresh_wait_32_32_28f.h"
 
 /*==================[macros and definitions]=================================*/
-#define OLED_SDA   21
-#define OLED_SCL   7
 #define SSD1315_ANCHO  128
-#define OLED_ADDR  0x78   /* 0x3C corrido un bit a la izquierda (formato de u8g2) */
+#define I2C_FREQ_HZ    100000   /* 100 kHz: el mismo bus lo comparte el ADXL345 */
 
 #define UI_ALARMA_PARPADEA   0    /*!< 1 hace que la pantalla de alarma alterne entre fondo blanco y negro */
 #define CODIGO_DIGITOS       4
@@ -20,7 +18,8 @@
 #define MENU_ITEMS           2   /*!< Menú clínico: Configurar y Apagar equipo */
 
 /*==================[internal data definition]===============================*/
-static u8g2_t u8g2;
+/* El u8g2_t vive en el componente display (la OLED va por i2c_mcu, no por el HAL de u8g2) */
+#define u8g2 (*Display_Handle())
 
 /* Ícono de volumen, 8x6 (generado con Lopaka) */
 static const unsigned char icono_volumen[] U8X8_PROGMEM = {0x48, 0x8c, 0xaf, 0xaf, 0x8c, 0x48};
@@ -336,19 +335,10 @@ static void DibujarPantalla(const ui_datos_t *d) {
 
 /*==================[external functions definition]==========================*/
 bool UI_Init(void) {
-    u8g2_esp32_hal_t hal = U8G2_ESP32_HAL_DEFAULT;
-    hal.bus.i2c.sda = OLED_SDA;
-    hal.bus.i2c.scl = OLED_SCL;
-    u8g2_esp32_hal_init(hal);
-
-    u8g2_Setup_ssd1315_i2c_128x64_noname_f(&u8g2, U8G2_R0, u8g2_esp32_i2c_byte_cb, u8g2_esp32_gpio_and_delay_cb);
-    u8x8_SetI2CAddress(&u8g2.u8x8, OLED_ADDR);
-
-    u8g2_InitDisplay(&u8g2);
-    u8g2_SetPowerSave(&u8g2, 0);
-    u8g2_ClearBuffer(&u8g2);
-    u8g2_SendBuffer(&u8g2);
-    return true;
+    if (!I2C_initialize(I2C_FREQ_HZ)) {   // si el bus ya estaba iniciado no hace nada
+        return false;
+    }
+    return Display_Init();
 }
 
 void UI_PantallaInicio(uint8_t cuadro) {

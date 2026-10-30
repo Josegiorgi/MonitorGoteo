@@ -17,6 +17,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include "driver/i2c_master.h"
+#include "driver/gpio.h"
+#include "esp_rom_sys.h"
 
 #include "i2c_mcu.h"
 /*==================[macros and definitions]=================================*/
@@ -41,9 +43,65 @@ static struct {
 static uint8_t s_i2c_devices_count = 0;
 
 /*==================[internal functions declaration]=========================*/
+/** Libera un esclavo que quedó sujetando SDA en bajo (por ejemplo, si el micro se reinició en
+ * medio de una transacción): manda hasta 9 pulsos de SCL y un STOP, antes de iniciar el bus. Si
+ * el bus ya estaba libre no hace nada. */
+static void i2c_mcu_recover_bus(void)
+{
+    const gpio_num_t scl = (gpio_num_t)I2C_MASTER_SCL_IO;
+    const gpio_num_t sda = (gpio_num_t)I2C_MASTER_SDA_IO;
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << scl) | (1ULL << sda),
+        .mode = GPIO_MODE_INPUT_OUTPUT_OD,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    gpio_config(&cfg);
+    gpio_set_level(sda, 1);
+    gpio_set_level(scl, 1);
+    esp_rom_delay_us(10);
+
+    if (gpio_get_level(sda) == 0) {
+        for (int i = 0; i < 9 && gpio_get_level(sda) == 0; i++) {
+            gpio_set_level(scl, 0);
+            esp_rom_delay_us(5);
+            gpio_set_level(scl, 1);
+            esp_rom_delay_us(5);
+        }
+        // STOP: SDA sube mientras SCL está en alto
+        gpio_set_level(sda, 0);
+        esp_rom_delay_us(5);
+        gpio_set_level(scl, 1);
+        esp_rom_delay_us(5);
+        gpio_set_level(sda, 1);
+        esp_rom_delay_us(5);
+        if (gpio_get_level(sda) == 0) {
+            ESP_LOGE("i2c_mcu", "SDA sigue en bajo: algun dispositivo sujeta el bus (probar sacarle la alimentacion)");
+        } else {
+            ESP_LOGW("i2c_mcu", "SDA estaba en bajo: bus liberado");
+        }
+    }
+    gpio_reset_pin(sda);
+    gpio_reset_pin(scl);
+}
+
+/** true si SCL lleva un rato sujeta en bajo (algo la tira a GND). Si el driver intenta liberar el bus con
+ * SCL en bajo, su espera interna (i2c_ll_master_clr_bus) no termina nunca y cuelga la tarea, así que en ese
+ * caso no se inicia la transacción. Durante una transferencia normal SCL sube en cada ciclo de reloj: con
+ * el bus en uso o libre la primera lectura ya da alto. */
+static bool i2c_mcu_scl_stuck_low(void)
+{
+    for (int i = 0; i < 12; i++) {                       // ~120 us: más que el período de reloj de 100 kHz y de 10 kHz
+        if (gpio_get_level((gpio_num_t)I2C_MASTER_SCL_IO)) {
+            return false;
+        }
+        esp_rom_delay_us(10);
+    }
+    return true;
+}
+
 static esp_err_t i2c_mcu_get_device_handle(uint8_t devAddr, i2c_master_dev_handle_t *ret_handle)
 {
-    if (s_i2c_bus_handle == NULL) {
+    if (s_i2c_bus_handle == NULL || i2c_mcu_scl_stuck_low()) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -93,6 +151,8 @@ bool I2C_initialize( uint32_t clockRateHz )
         return true;
     }
 
+    i2c_mcu_recover_bus();   // por si un esclavo quedó trabado por un reinicio en medio de una transacción
+
     i2c_master_bus_config_t bus_config = {
         .i2c_port = I2C_MASTER_NUM,
         .sda_io_num = I2C_MASTER_SDA_IO,
@@ -110,6 +170,16 @@ bool I2C_initialize( uint32_t clockRateHz )
 }
 
 
+
+/** Check whether a device acknowledges its address
+ */
+bool I2C_probe(uint8_t devAddr, uint16_t timeout)
+{
+    if (s_i2c_bus_handle == NULL || i2c_mcu_scl_stuck_low()) {
+        return false;
+    }
+    return i2c_master_probe(s_i2c_bus_handle, devAddr, i2c_mcu_timeout_ms(timeout)) == ESP_OK;
+}
 
 /** Enable or disable I2C
  * @param isEnabled true = enable, false = disable

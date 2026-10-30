@@ -1,0 +1,5 @@
+CONFIG_IDF_TARGET="esp32c3"
+# La consola por USB-Serial-JTAG libera GPIO20 (SW del encoder) y GPIO21 (SDA del I2C),
+# que son los pines por defecto del UART0.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=n
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

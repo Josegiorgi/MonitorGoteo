@@ -163,8 +163,10 @@
 #define ANGLE_I2C_FREQ_HZ      100000 /*!< Velocidad del I2C del acelerómetro. 100 kHz en vez de los 400 kHz por defecto: tolera mejor cables largos o soldaduras flojas */
 #define ANGLE_RETRY_MS         200   /*!< Espera tras una lectura fallida antes de reintentar */
 #define ANGLE_FAIL_LIMIT       3     /*!< Lecturas fallidas seguidas tras las que el pitch pasa a NaN */
-#define ANGLE_AVG_SAMPLES      8     /*!< Lecturas del acelerómetro que se promedian por cada ángulo, para filtrar vibraciones */
+#define ANGLE_AVG_SAMPLES      32    /*!< Lecturas del acelerómetro que se promedian por cada ángulo, para filtrar vibraciones */
 #define RAD_TO_DEG             57.29578f
+#define ANGLE_USE_ANGZ         1     /*!< 1: el ángulo que se registra es angZ (ángulo del eje Z respecto de la horizontal, el de prueba_adxl345) menos ANGLE_OFFSET_DEG; 0: el pitch de antes */
+#define ANGLE_OFFSET_DEG       11.1f /*!< angZ (varía entre 10.6 y 11.7 en reposo, punto medio 11.1) con el equipo en la posición de referencia (cero) dentro del gabinete: leerlo en prueba_adxl345 y ponerlo acá. Se resta para que en esa posición el ángulo sea 0 */
 #define PLOT_DECIMATION        8     /*!< Se imprime 1 línea cada N muestras (8 x 1.2ms ~ 10ms, ~100 líneas/s), con la detección "pegada": si hubo gota en las N muestras, sale ANGLE_DETECTION_VALUE en esa línea. La línea "500,0,0,-12.3" ocupa ~15 caracteres, ~1.3ms a 115200 baudios, así que la UART queda con mucho margen */
 #define PLOT_QUEUE_LEN         32    /*!< Líneas que puede acumular la cola entre ADCTask y la tarea que imprime. Si se llena, se descartan líneas del plotter (la detección no se ve afectada) */
 
@@ -378,7 +380,14 @@ static void AngleTask(void *pvParameter) {
         float ax, ay, az;
         if (AngleSensorRead(&ax, &ay, &az)) {
             failures = 0;
+#if ANGLE_USE_ANGZ
+            float norm = sqrtf(ax * ax + ay * ay + az * az);
+            float s = (norm > 0.2f) ? az / norm : 0.0f;   // con menos de 0.2 g no hay gravedad con la que medir
+            s = (s > 1.0f) ? 1.0f : (s < -1.0f) ? -1.0f : s;
+            pitch_deg = (norm > 0.2f) ? asinf(s) * RAD_TO_DEG - ANGLE_OFFSET_DEG : NAN;
+#else
             pitch_deg = atan2f(-ax, sqrtf(ay * ay + az * az)) * RAD_TO_DEG;
+#endif
             vTaskDelay(pdMS_TO_TICKS(ANGLE_UPDATE_MS));
         } else {
             /* Falló la lectura (NACK, cable flojo, etc.): no se reintenta enseguida, se espera para no

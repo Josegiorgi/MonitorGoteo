@@ -48,6 +48,15 @@
  */
 bool I2C_initialize( uint32_t clockRateHz );
 
+/** @fn bool I2C_probe(uint8_t devAddr, uint16_t timeout)
+ * @brief Check whether a device acknowledges its address (used by I2C scans). It doesn't
+ * add the device to the handle cache, so it can be called for any address.
+ * @param devAddr I2C slave device address (7 bits)
+ * @param timeout Timeout in milliseconds (0 to use the default one)
+ * @return true if a device answered
+ */
+bool I2C_probe(uint8_t devAddr, uint16_t timeout);
+
 /** @fn I2C_enable(bool isEnabled)
  * @brief Enable or disable I2C
  * @param isEnabled true = enable, false = disable

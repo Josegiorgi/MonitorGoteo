@@ -37,12 +37,17 @@ import matplotlib.pyplot as plt
 # ------------------------------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------------------------------
-CARPETA = Path(r"C:\Users\Jose\OneDrive\Escritorio\Datos BPW34\Comparacion")
+CARPETA = Path(r"C:\Users\Jose\OneDrive\Escritorio\Datos BPW34\prueba adxl345")
 TOMAS = {
-    "Toma 4": CARPETA / "Detecion y angulo4.csv",     # goteo regular
-    "Toma 5": CARPETA / "Detecion y angulo5.csv",     # goteo regular
-    "Toma 6": CARPETA / "Detecion y angulo6.csv",     # goteo regular
-    # Agregar acá las tomas nuevas: "Toma 7": CARPETA / "Detecion y angulo7.csv",
+    # Dos tomas que se inclinan primero hacia el lado positivo y después hacia el negativo (c1 y c2), y dos al revés, primero el
+    # negativo y después el positivo (c4 y c5): así el orden del desplazamiento no sesga el resultado de ningún lado.
+    "c1": CARPETA / "c1.csv",     # primero positivo. Cámara de menor diámetro, goteo regular (el ángulo es angZ menos el offset de 11.1°, ver pruebabpw34)
+    "c2": CARPETA / "c2.csv",     # primero positivo
+    "c4": CARPETA / "c4.csv",     # primero negativo, pasada más lenta entre -4° y -5°
+    "c5": CARPETA / "c5.csv",     # primero negativo (reemplaza a c3, que fue primero positivo y queda en la carpeta pero no se analiza)
+    # Agregar acá las tomas nuevas: "c6": CARPETA / "c6.csv",
+    # Tomas anteriores (otra cámara y otro ángulo, no mezclarlas con estas): p2 y p3 de esta carpeta, y
+    # "Toma 4/5/6" = CARPETA.parent / "Comparacion" / "Detecion y angulo4.csv" (5 y 6)
 }
 
 SAMPLE_PERIOD_US = 1200.0    # SAMPLE_PERIOD_US de pruebabpw34 (el del OPT101 es 700)
@@ -52,9 +57,8 @@ COL_PITCH = 3                # columna 4 del CSV
 
 VENTANA_MEDIANA = 5          # líneas del filtro de mediana del pitch (5 líneas ~ 50 ms): saca los picos aislados
 FACTOR_CORTE = 2.5           # un "corte" es un intervalo entre gotas mayor a FACTOR_CORTE x el período típico
-ANALIZAR_LADO_NEGATIVO = False  # por ahora se analiza solo el lado positivo: en teoría el negativo debería ser simétrico, pero no se
-                             # puede comprobar con el prototipo (se mide después con el acelerómetro nuevo). Con True se analiza
-                             # también (cortes, aviso y rangos de pitch negativos)
+ANALIZAR_LADO_NEGATIVO = True   # True: se analizan los dos lados (cortes, aviso y rangos de ángulo positivos y negativos). Con las tomas
+                             # c1 a c3 el acelerómetro nuevo ya llega a ángulos negativos. False: solo el lado positivo
 PITCH_MIN_CORTE_ANGULO = 3.0 # un corte cuenta como "por ángulo" del lado positivo si el pitch llega al menos a esto durante el corte
 PITCH_MIN_CORTE_NEGATIVO = 2.0  # y del lado negativo (solo si ANALIZAR_LADO_NEGATIVO) si llega al menos a -esto
 PITCH_ARRANQUE_MIN = 1.0     # además, la última gota antes del corte tiene que estar ya inclinada al menos esto de ese lado
@@ -64,8 +68,8 @@ MARGEN_AVISO_GRADOS = 0.5    # el aviso se pone esto antes (del lado del reposo)
 HISTERESIS_GRADOS = 0.5      # el aviso se apaga esto por debajo del ángulo en que se enciende
 EXCLUIR_CORTES = {}          # cortes que no son por ángulo (ej. cortaste el flujo), por toma: {"Toma 4": [2]} (número de la tabla).
                              # El arranque del goteo ya lo descarta PITCH_ARRANQUE_MIN: la lista queda para casos que el criterio no resuelva
-INTERVALOS_PITCH_NEGATIVO = [-5.0, -4.0, -3.0, -2.5, -2.0, -1.0]                                   # rangos de pitch negativo (solo si ANALIZAR_LADO_NEGATIVO)
-INTERVALOS_PITCH_POSITIVO = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 14.0]                # rangos de pitch positivo para la tasa de detección
+INTERVALOS_PITCH_NEGATIVO = [-20.0, -18.0, -16.0, -14.0, -12.0, -10.0, -8.0, -6.0, -4.0, -2.0]     # rangos de ángulo negativo (solo si ANALIZAR_LADO_NEGATIVO)
+INTERVALOS_PITCH_POSITIVO = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0]                 # rangos de ángulo positivo para la tasa de detección
 INTERVALOS_PITCH = (INTERVALOS_PITCH_NEGATIVO if ANALIZAR_LADO_NEGATIVO else []) + INTERVALOS_PITCH_POSITIVO
 
 GUARDAR_PNG = True           # guarda los gráficos como PNG en esta carpeta
@@ -228,6 +232,9 @@ for (p0, p1), (det, esp) in zip(zip(INTERVALOS_PITCH[:-1], INTERVALOS_PITCH[1:])
 # ------------------------------------------------------------------------------------------
 fig, ejes = plt.subplots(2, len(tomas), figsize=(6.5 * len(tomas), 6), sharey="row",
                          gridspec_kw={"height_ratios": [3, 1]}, squeeze=False)
+# El eje del ángulo es el mismo en todas las tomas: abarca el lado positivo y el negativo de todas
+y_min = min(d["pitch"].min() for d in tomas.values()) - 1
+y_max = max(d["pitch"].max() for d in tomas.values()) + 1
 for col, (nombre, d) in enumerate(tomas.items()):
     ax_p, ax_g = ejes[0, col], ejes[1, col]
     ax_p.plot(d["t"], d["pitch_crudo"], lw=0.6, color="lightgray", label="pitch (crudo)")
@@ -236,7 +243,8 @@ for col, (nombre, d) in enumerate(tomas.items()):
         ax_p.axvspan(c["t0"], c["t1"], color="tab:red" if c["por_angulo"] else "tab:gray", alpha=0.15)
     ax_p.set_title(f"{nombre}  (rojo: corte por ángulo, gris: otro corte)")
     ax_p.set_ylabel("pitch [°]")
-    ax_p.set_ylim(max(-3, d["pitch"].min() - 1), d["pitch"].max() + 1)
+    ax_p.set_ylim(y_min, y_max)
+    ax_p.axhline(0, color="black", lw=0.6)
     ax_p.grid(alpha=0.3)
     ax_p.legend(loc="upper right", fontsize=8)
     ax_g.vlines(d["gotas_t"], 0, 1, color="tab:red", lw=1)

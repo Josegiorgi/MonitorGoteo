@@ -1,0 +1,23 @@
+menu "Display (OLED I2C 128x64)"
+
+    choice DISPLAY_CONTROLLER
+        prompt "Controlador de la OLED"
+        default DISPLAY_SSD1315
+        help
+            Controlador de la pantalla OLED de 128x64 por I2C.
+
+        config DISPLAY_SSD1306
+            bool "SSD1306"
+        config DISPLAY_SH1106
+            bool "SH1106"
+        config DISPLAY_SSD1315
+            bool "SSD1315"
+    endchoice
+
+    config DISPLAY_I2C_ADDRESS
+        hex "Direccion I2C de la OLED (7 bits)"
+        default 0x3C
+        help
+            0x3C en casi todos los modulos (0x3D si el modulo lo trae cambiado).
+
+endmenu

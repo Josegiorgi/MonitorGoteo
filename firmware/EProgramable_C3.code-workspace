@@ -41,6 +41,24 @@
         },
         {
             "path": "./projects/prueba_adxl345"
+        },
+        {
+            "path": "./components"
+        },
+        {
+            "path": "./projects/test_i2c_scan"
+        },
+        {
+            "path": "./projects/test_buzzer_alarmas"
+        },
+        {
+            "path": "./projects/test_display"
+        },
+        {
+            "path": "./projects/test_alarmas"
+        },
+        {
+            "path": "./projects/monitor_goteo"
         }
     ],
     "settings": {
