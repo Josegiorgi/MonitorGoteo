@@ -1,51 +1,67 @@
 {
     "folders": [
         {
+            "name": "1 | drivers",
             "path": "./drivers"
         },
         {
+            "name": "1 | middleware",
             "path": "./middleware"
         },
         {
-            "path": "./third_party/u8g2"
-        },
-        {
-            "path": "./projects/prueba_interfaz"
-        },
-        {
-            "path": "./projects/prueba_fdc1004"
-        },
-        {
-            "path": "./projects/prueba_opt101"
-        },
-        {
-            "path": "./projects/analisis_opt101"
-        },
-        {
-            "path": "./projects/pruebabpw34"
-        },
-        {
-            "path": "./projects/analisis_bpw34"
-        },
-        {
-            "path": "./projects/prueba_adxl345"
-        },
-        {
+            "name": "1 | components",
             "path": "./components"
         },
         {
-            "path": "./projects/test_i2c_scan"
+            "name": "1 | third_party (u8g2)",
+            "path": "./third_party/u8g2"
         },
         {
-            "path": "./projects/test_buzzer_alarmas"
+            "name": "2 | sensor opt101",
+            "path": "./projects/prueba_opt101"
         },
         {
+            "name": "2 | sensor bpw34",
+            "path": "./projects/pruebabpw34"
+        },
+        {
+            "name": "2 | sensor fdc1004",
+            "path": "./projects/prueba_fdc1004"
+        },
+        {
+            "name": "2 | sensor adxl345",
+            "path": "./projects/prueba_adxl345"
+        },
+        {
+            "name": "3 | analisis opt101 (Python)",
+            "path": "./projects/analisis_opt101"
+        },
+        {
+            "name": "3 | analisis bpw34 (Python)",
+            "path": "./projects/analisis_bpw34"
+        },
+        {
+            "name": "4 | prueba pantallas",
+            "path": "./projects/prueba_interfaz"
+        },
+        {
+            "name": "4 | prueba display+gotas",
             "path": "./projects/test_display"
         },
         {
+            "name": "4 | prueba buzzer",
+            "path": "./projects/test_buzzer_alarmas"
+        },
+        {
+            "name": "4 | prueba alarmas",
             "path": "./projects/test_alarmas"
         },
         {
+            "name": "4 | prueba i2c",
+            "path": "./projects/test_i2c_scan"
+        },
+        {
+            "name": "5 | MONITOR DE GOTEO",
             "path": "./projects/monitor_goteo"
         }
     ],
