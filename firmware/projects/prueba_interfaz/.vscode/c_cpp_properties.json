@@ -9,9 +9,8 @@
         "${workspaceFolder}/**",
         "${workspaceFolder}/../../drivers/microcontroller/**",
         "${workspaceFolder}/../../drivers/devices/**",
-        "${workspaceFolder}/../../modules/**",
-        "${workspaceFolder}/../../u8g2",
-        "${workspaceFolder}/../../u8g2_hal/include"
+        "${workspaceFolder}/../../components/**",
+        "${workspaceFolder}/../../third_party/u8g2"
       ],
       "browse": {
         "path": [
@@ -20,9 +19,8 @@
           "${workspaceFolder}/**",
           "${workspaceFolder}/../../drivers/microcontroller/**",
           "${workspaceFolder}/../../drivers/devices/**",
-        "${workspaceFolder}/../../modules/**",
-        "${workspaceFolder}/../../u8g2",
-        "${workspaceFolder}/../../u8g2_hal/include"
+        "${workspaceFolder}/../../components/**",
+        "${workspaceFolder}/../../third_party/u8g2"
         ],
         "limitSymbolsToIncludedHeaders": false
       },

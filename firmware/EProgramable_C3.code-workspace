@@ -7,16 +7,7 @@
             "path": "./middleware"
         },
         {
-            "path": "./u8g2"
-        },
-        {
-            "path": "./u8g2_hal"
-        },
-        {
-            "path": "./modules/interfaz_usuario"
-        },
-        {
-            "path": "./modules/sensado"
+            "path": "./third_party/u8g2"
         },
         {
             "path": "./projects/prueba_interfaz"
