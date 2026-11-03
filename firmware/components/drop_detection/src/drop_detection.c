@@ -6,8 +6,11 @@
 #include "esp_timer.h"
 
 /*==================[macros and definitions]=================================*/
-#define XCORR_THRESHOLD_CH1  160.0f   /*!< Umbrales y tiempos de pruebabpw34 (ver ahí cómo salen del análisis) */
-#define XCORR_THRESHOLD_CH2  140.0f
+#define XCORR_THRESHOLD_CH1  480.0f   /*!< Antes 160 (el de pruebabpw34, 3 veces el ruido medido sin pantalla). Con la OLED redibujando
+                                           aparecían falsas del canal 1 de hasta ~390 mV, y la gota más débil del mejor canal da ~594
+                                           (registros del 14/10, ../analisis_bpw34): 480 queda entre las dos. Subir solo el canal 1 es una
+                                           prueba: el canal 2 puede ver el mismo ruido y quedar tapado (ver más abajo el descarte de 100 ms) */
+#define XCORR_THRESHOLD_CH2  140.0f   /*!< Umbral de pruebabpw34 (ver ahí cómo sale del análisis) */
 #define XCORR_PEAK_WINDOW_MS 15
 #define XCORR_REFRACTORY_MS  100
 #define MS_TO_SAMPLES(ms)    (((ms) * 1000UL) / OPTICAL_SENSOR_SAMPLE_PERIOD_US)

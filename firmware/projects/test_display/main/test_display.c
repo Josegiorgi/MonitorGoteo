@@ -258,7 +258,7 @@ void app_main(void)
                 ultima_gota_us = t_us;
                 int canal;
                 float pico = DropDetection_UltimoPico(&canal);
-                ESP_LOGI(TAG, "gota %lu (canal %d, pico %.0f mV; umbral 160/140)", (unsigned long)Goteo_Gotas(), canal, pico);
+                ESP_LOGI(TAG, "gota %lu (canal %d, pico %.0f mV; umbral 480/140)", (unsigned long)Goteo_Gotas(), canal, pico);
                 if (alarma_activa) {   // volvieron las gotas: la alarma se apaga sola
                     alarma_activa = false;
                     alarma_silenciada = false;
