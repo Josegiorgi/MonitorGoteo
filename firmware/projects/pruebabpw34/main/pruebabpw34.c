@@ -115,7 +115,7 @@
 #define MODE_DETECTOR          2 /*!< Detecta la gota por correlación cruzada con la plantilla y la avisa en un tercer valor de la línea */
 #define MODE_ANGLE             3 /*!< Detecta la gota como MODE_DETECTOR y transmite solo "deteccion,0,0,pitch" (pitch del acelerómetro) */
 
-#define TEST_MODE              MODE_ANGLE /*!< Modo activo. Cambiar acá para pasar de etapa. */
+#define TEST_MODE              MODE_DETECTOR /*!< Modo activo. Cambiar acá para pasar de etapa. */
 
 #define ADC_CHANNEL_BPW34_1  CH2   /*!< Canal ADC de la salida del amplificador del BPW34 n°1 (GPIO_2) */
 #define ADC_CHANNEL_BPW34_2  CH3   /*!< Canal ADC de la salida del amplificador del BPW34 n°2 (GPIO_3).

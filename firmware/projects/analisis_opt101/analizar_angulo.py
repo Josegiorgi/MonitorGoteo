@@ -37,11 +37,15 @@ import matplotlib.pyplot as plt
 # ------------------------------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------------------------------
-CARPETA = Path(r"C:\Users\Jose\OneDrive\Escritorio\Datos OPT101\Comparacion\Filtrada para plantilla")
+CARPETA = Path(r"C:\Users\Jose\OneDrive\Escritorio\Datos BPW34\prueba opt101")
 TOMAS = {
-    "Toma 1": CARPETA / "Goteo y angulo.csv",
-    "Toma 2": CARPETA / "Goteo y angulo 2.csv",
-    # Agregar acá las tomas nuevas: "Toma 3": CARPETA / "Goteo y angulo 3.csv",
+    # Dos tomas que se inclinan primero hacia el lado positivo (o1 y o2) y dos primero hacia el negativo (o3 y o4): así el orden
+    # del desplazamiento no sesga el resultado de ningún lado (mismo criterio que con el BPW34).
+    "o1": CARPETA / "o1.csv",     # primero positivo
+    "o2": CARPETA / "o2.csv",     # primero positivo, goteo más rápido que o1
+    "o3": CARPETA / "o3.csv",     # primero negativo
+    "o4": CARPETA / "o4.csv",     # primero negativo
+    # Agregar acá las tomas nuevas: "o5": CARPETA / "o5.csv",
 }
 
 SAMPLE_PERIOD_US = 700.0     # SAMPLE_PERIOD_US de prueba_opt101 (el de pruebabpw34 es 1200)
@@ -51,9 +55,8 @@ COL_PITCH = 3                # columna 4 del CSV
 
 VENTANA_MEDIANA = 5          # líneas del filtro de mediana del pitch (5 líneas ~ 50 ms): saca los picos aislados
 FACTOR_CORTE = 2.5           # un "corte" es un intervalo entre gotas mayor a FACTOR_CORTE x el período típico
-ANALIZAR_LADO_NEGATIVO = False  # por ahora se analiza solo el lado positivo: en teoría el negativo debería ser simétrico, pero no se
-                             # puede comprobar con el prototipo (se mide después con el acelerómetro nuevo). Con True se analiza
-                             # también (cortes, aviso y rangos de pitch negativos)
+ANALIZAR_LADO_NEGATIVO = True   # True: se analizan los dos lados (cortes, aviso y rangos de ángulo positivos y negativos). Con el
+                             # acelerómetro nuevo las tomas llegan a ángulos negativos. False: solo el lado positivo
 PITCH_MIN_CORTE_ANGULO = 3.0 # un corte cuenta como "por ángulo" del lado positivo si el pitch llega al menos a esto durante el corte
 PITCH_MIN_CORTE_NEGATIVO = 2.0  # y del lado negativo (solo si ANALIZAR_LADO_NEGATIVO) si llega al menos a -esto
 PITCH_ARRANQUE_MIN = 1.0     # además, la última gota antes del corte tiene que estar ya inclinada al menos esto de ese lado
@@ -63,8 +66,8 @@ MARGEN_AVISO_GRADOS = 0.5    # el aviso se pone esto antes (del lado del reposo)
 HISTERESIS_GRADOS = 0.5      # el aviso se apaga esto por debajo del ángulo en que se enciende
 EXCLUIR_CORTES = {}          # cortes que no son por ángulo (ej. cortaste el flujo), por toma: {"Toma 4": [2]} (número de la tabla).
                              # El arranque del goteo ya lo descarta PITCH_ARRANQUE_MIN: la lista queda para casos que el criterio no resuelva
-INTERVALOS_PITCH_NEGATIVO = [-5.0, -4.0, -3.0, -2.5, -2.0, -1.0]                                   # rangos de pitch negativo (solo si ANALIZAR_LADO_NEGATIVO)
-INTERVALOS_PITCH_POSITIVO = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 14.0]                # rangos de pitch positivo para la tasa de detección
+INTERVALOS_PITCH_NEGATIVO = [-20.0, -18.0, -16.0, -14.0, -12.0, -10.0, -8.0, -6.0, -4.0, -2.0]     # rangos de ángulo negativo (solo si ANALIZAR_LADO_NEGATIVO)
+INTERVALOS_PITCH_POSITIVO = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0]                 # rangos de ángulo positivo para la tasa de detección
 INTERVALOS_PITCH = (INTERVALOS_PITCH_NEGATIVO if ANALIZAR_LADO_NEGATIVO else []) + INTERVALOS_PITCH_POSITIVO
 
 GUARDAR_PNG = True           # guarda los gráficos como PNG en esta carpeta
