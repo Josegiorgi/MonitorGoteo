@@ -12,6 +12,8 @@
 /*==================[macros and definitions]=================================*/
 #define TX_BUFFER_LEN   160     /*!< u8g2 manda a lo sumo ~40 bytes por transferencia */
 #define TEXT_MAX        32
+#define PROBE_TRIES     10      /*!< Intentos de encontrar la OLED en el bus al iniciar: al encender tarda unos ms en contestar */
+#define PROBE_RETRY_MS  50      /*!< Espera entre un intento y el siguiente */
 
 /*==================[internal data definition]===============================*/
 static u8g2_t u8g2;
@@ -91,7 +93,16 @@ bool Display_Init(void)
 #endif
     u8x8_SetI2CAddress(&u8g2.u8x8, CONFIG_DISPLAY_I2C_ADDRESS << 1);
 
-    if (!I2C_probe(CONFIG_DISPLAY_I2C_ADDRESS, 50)) {
+    // Justo después de encender (o de crear el bus) la OLED puede no contestar todavía: se reintenta
+    // unos instantes antes de dar por perdida la pantalla
+    bool presente = false;
+    for (int i = 0; i < PROBE_TRIES && !presente; i++) {
+        presente = I2C_probe(CONFIG_DISPLAY_I2C_ADDRESS, 50);
+        if (!presente) {
+            vTaskDelay(pdMS_TO_TICKS(PROBE_RETRY_MS));
+        }
+    }
+    if (!presente) {
         return false;
     }
     u8g2_InitDisplay(&u8g2);

@@ -20,6 +20,7 @@
  * |   Date	    | Description                                    |
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation                              |
+ * | 03/11/2026 | Display_Init reintenta hasta 10 veces (50 ms entre intentos) encontrar la OLED: justo al encender no contestaba y quedaba "no responde" |
  *
  */
 
@@ -30,7 +31,7 @@
 
 /** @fn bool Display_Init(void)
  * @brief Configura u8g2 con el controlador elegido, enciende la OLED y la deja en blanco. Requiere
- * I2C_initialize() previo.
+ * I2C_initialize() previo. Si la OLED no contesta, reintenta hasta 1 s antes de rendirse.
  * @return true si la OLED respondió en el bus
  */
 bool Display_Init(void);
