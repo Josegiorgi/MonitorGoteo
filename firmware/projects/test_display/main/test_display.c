@@ -47,6 +47,7 @@
  * | 29/10/2026 | Document creation		                         |
  * | 29/10/2026 | Sin ángulo: OLED coordinada con el encoder y el conteo de gotas, y alarma simulada de fin de sachet |
  * | 29/10/2026 | Flujo completo: inicio, pedido del factor de goteo, monitoreo en mL/h y alarma (1 click silencia, 2 resuelven) |
+ * | 03/11/2026 | DIBUJAR_PANTALLA: en 0 no se dibuja nada después de iniciar la OLED, para ver si las gotas falsas (pico ~180 y ~320 mV, cada ~370 ms, solo canal 1) vienen del tráfico I2C de la pantalla |
  *
  * @author Josefina Giorgi (josefina.giorgi@ingenieria.uner.edu.ar)
  *
@@ -75,6 +76,9 @@
 #define PERIODO_ANIMACION_MS    42      /*!< Cada cuánto avanza un cuadro de la animación del inicio */
 #define FIN_SACHET_SIN_GOTAS_S  40      /*!< Segundos sin gotas a partir de los cuales se simula el fin de sachet */
 #define REFRESCO_MS             200     /*!< Cada cuánto se redibuja la pantalla */
+#define DIBUJAR_PANTALLA        1       /*!< 1: funciona normal. 0: la OLED se inicia pero no se dibuja nada más (ni el inicio ni el
+                                             monitoreo), así no hay tráfico I2C mientras se cuentan las gotas. Sirve para ver si las
+                                             gotas falsas vienen de la pantalla: con 0 el conteo y el log funcionan igual */
 #define INDICADOR_GOTA_MS       300     /*!< Cuánto queda encendido el indicador después de cada gota */
 #define COLA_GOTAS_LARGO        32
 #define ESPERA_EVENTO_MS        50      /*!< Máximo que se espera un evento del encoder antes de mirar las gotas */
@@ -204,7 +208,7 @@ void app_main(void)
     bool sensor_ok = DropDetection_Init(AvisoGota);
     ESP_LOGI(TAG, "Sensor de gotas: %s", sensor_ok ? "OK" : "error");
 
-    if (display_ok) {
+    if (display_ok && DIBUJAR_PANTALLA) {
         Inicio();
     }
 
@@ -276,7 +280,7 @@ void app_main(void)
         }
 
         /* Pantalla */
-        if (display_ok && (redibujar || (ahora - ultimo_dibujo_us) / 1000 >= REFRESCO_MS)) {
+        if (display_ok && DIBUJAR_PANTALLA && (redibujar || (ahora - ultimo_dibujo_us) / 1000 >= REFRESCO_MS)) {
             Display_Clear();
             if (estado == ESTADO_FACTOR) {
                 PantallaFactor();
