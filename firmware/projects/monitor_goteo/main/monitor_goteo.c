@@ -19,14 +19,26 @@
  *   en una alarma se silencia: deja de sonar, aparece la siguiente (si hay) y las de prioridad alta
  *   se re-arman a los 2 min si la condición sigue.
  *
+ * ESCENARIO (macro de más abajo) elige con qué arranca la configuración y si los tiempos de las
+ * alarmas se acortan para probar sin esperar minutos. Por defecto es ESCENARIO_NORMAL (valores
+ * reales). Los de prueba precargan Factor, Volumen y Tiempo en Config (se aceptan con los clicks de
+ * siempre) y acortan la estabilización del desvío a 20 s, su persistencia a 20 s (30 s el aviso) y
+ * el re-armado a 20 s. Al arrancar, un escenario de prueba lo avisa en el log y al compilar:
+ *
+ * | Escenario              | Config                  | Objetivo        | Para probar                                    |
+ * |:-----------------------|:------------------------|:----------------|:-----------------------------------------------|
+ * | ESCENARIO_FIN_SACHET   | 10 gtt/mL, 50 mL, 10 min | 50 gtt/min      | próximo a finalizar, fin de sachet, volumen completo (500 gotas). Clamp cerrado en el Ajuste de goteo: el volumen cuenta desde ahí |
+ * | ESCENARIO_ALARMAS      | 20 gtt/mL, 500 mL, 8 h   | 20,8 gtt/min    | desvío (con goteo más rápido), flujo detenido, colocación, silenciado y prioridad. Para flujo bajo, configurar 1 h 30 min |
+ * | ESCENARIO_BATERIA      | 20 gtt/mL, 500 mL, 3 h   | 55,6 gtt/min    | batería simulada con el encoder (sin desvío con un goteo de ~56 gtt/min) |
+ *
  * Para probar las alarmas:
  * - Flujo detenido: tapar el sensor o cortar el goteo. Suena a los T_ocl (mínimo 15 s).
  * - Fin de sachet: con el volumen en 90 % o más, cortar el goteo.
  * - Desviación: cambiar el goteo con el clamp. Aviso a los 5 min con más de 10 % y alarma a los
  *   2 min con más de 25 %. No se evalúa en los primeros 2 min del Monitoreo.
- * - Batería: por ahora no se prueba. La carga queda fija en 100 % (no hay medición real todavía) y
- *   con BATERIA_SIMULADA en 1 girar el encoder en el Monitoreo la baja o sube de a 5 % (20 % aviso,
- *   10 % alarma media, 5 % alarma alta).
+ * - Batería: todavía no hay medición real y la carga queda fija en 100 %. Solo en ESCENARIO_BATERIA,
+ *   girar el encoder en el Monitoreo la baja o sube de a 5 % (20 % aviso, 10 % alarma media, 5 %
+ *   alarma alta).
  * - Colocación: inclinar el equipo más de TOLERANCIA_GRADOS (hacia cualquier lado) y mantenerlo 5 s.
  *   Si el acelerómetro deja de responder en el uso, también se da la alarma: la colocación no se
  *   puede verificar.
@@ -62,6 +74,7 @@
  * | 29/10/2026 | Document creation: interfaz de prueba_interfaz con gotas reales, alarmas y buzzer |
  * | 04/11/2026 | Se integra el ADXL345 (componente inclinacion): autotest "ACEL" real, ángulo en la pantalla de colocación y alarma de colocación. Tolerancia de 2,5° a 8° según ../analisis_bpw34 |
  * | 04/11/2026 | BATERIA_SIMULADA pasa a 0: la alarma de batería se prueba aparte, después de probar el resto |
+ * | 04/11/2026 | Escenarios de prueba (ESCENARIO): fin de sachet, alarmas (desvío, flujo detenido, colocación) y batería, con la configuración precargada y tiempos de alarma cortos (Alarmas_SetTiempos). Por defecto ESCENARIO_NORMAL |
  *
  * @author Josefina Giorgi (josefina.giorgi@ingenieria.uner.edu.ar)
  *
@@ -97,13 +110,55 @@
 #define TOLERANCIA_GRADOS     8.0f  /*!< Ángulo máximo (hacia cualquier lado) para dar la colocación por correcta. En las tomas de
                                          ../analisis_bpw34 (c1, c2, c4, c5) la detección empieza a perderse a 9.8° del lado positivo y
                                          a -10.8° del negativo (pocos cortes por lado): se deja ~2° de margen. Antes 2.5° provisorio */
-#define BATERIA_SIMULADA      0     /*!< 1: girar el encoder en el Monitoreo sube/baja la batería simulada de a 5 %. Está en 0 mientras no se pruebe la alarma de batería: la carga queda en 100 % y no hay alarmas de batería */
+/* Escenario: qué configuración arranca precargada y si los tiempos de alarma se acortan (ver arriba).
+ * Cambiar esta línea para probar y VOLVER A ESCENARIO_NORMAL para la versión de verdad. */
+#define ESCENARIO_NORMAL      0
+#define ESCENARIO_FIN_SACHET  1
+#define ESCENARIO_ALARMAS     2
+#define ESCENARIO_BATERIA     3
+#define ESCENARIO             ESCENARIO_NORMAL
+
+#if ESCENARIO == ESCENARIO_FIN_SACHET
+#define NOMBRE_ESCENARIO      "FIN_SACHET"
+#define CONFIG_FACTOR         10    /*!< gtt/mL: con 50 mL son solo 500 gotas */
+#define CONFIG_VOLUMEN_ML     50
+#define CONFIG_DURACION_MIN   10    /*!< objetivo 50 gtt/min */
+#elif ESCENARIO == ESCENARIO_ALARMAS
+#define NOMBRE_ESCENARIO      "ALARMAS"
+#define CONFIG_FACTOR         20
+#define CONFIG_VOLUMEN_ML     500
+#define CONFIG_DURACION_MIN   (8 * 60)   /*!< objetivo 20,8 gtt/min: con un goteo de ~56 gtt/min hay desvío alto */
+#elif ESCENARIO == ESCENARIO_BATERIA
+#define NOMBRE_ESCENARIO      "BATERIA"
+#define CONFIG_FACTOR         20
+#define CONFIG_VOLUMEN_ML     500
+#define CONFIG_DURACION_MIN   180   /*!< objetivo 55,6 gtt/min: sin desvío con un goteo de ~56 gtt/min */
+#else
+#define CONFIG_FACTOR         20
+#define CONFIG_VOLUMEN_ML     500
+#define CONFIG_DURACION_MIN   (8 * 60)
+#endif
+
+#if ESCENARIO != ESCENARIO_NORMAL
+#warning "monitor_goteo compilado en un ESCENARIO DE PRUEBA (tiempos de alarma acortados): volver a ESCENARIO_NORMAL para la versión final"
+#endif
+
+#define BATERIA_SIMULADA      (ESCENARIO == ESCENARIO_BATERIA)   /*!< 1: girar el encoder en el Monitoreo sube/baja la batería simulada de a 5 %. Solo en ESCENARIO_BATERIA: no hay medición real todavía */
 #define BATERIA_PASO_PCT      5
 
 static const char *TAG = "monitor_goteo";
 
 /*==================[internal data definition]===============================*/
 static ui_datos_t datos;
+#if ESCENARIO != ESCENARIO_NORMAL
+/** Tiempos de alarma cortos para probar sin esperar minutos (los de la especificación son 120, 300, 120 y 120 s) */
+static const alarmas_tiempos_t tiempos_prueba = {
+    .desv_estabilizacion_s = 20,
+    .desv_leve_persist_s = 30,
+    .desv_fuerte_persist_s = 20,
+    .rearme_s = 20,
+};
+#endif
 static ui_chequeo_t chequeos[UI_CHEQUEOS_MAX] = {
     {"OLED", UI_CHEQUEO_PENDIENTE},
     {"ENC", UI_CHEQUEO_PENDIENTE},
@@ -122,10 +177,10 @@ static int64_t ultimo_refresco_us = 0;
 /*==================[internal functions definition]==========================*/
 static void DatosIniciales(void) {
     datos = (ui_datos_t){
-        .factor_goteo = 20,
-        .volumen_total_ml = 500,
-        .duracion_min = 8 * 60,
-        .flujo_objetivo_mlh = (500 * 60 + 240) / (8 * 60),   // volumen / tiempo; después lo recalcula la interfaz al cambiar Config
+        .factor_goteo = CONFIG_FACTOR,
+        .volumen_total_ml = CONFIG_VOLUMEN_ML,
+        .duracion_min = CONFIG_DURACION_MIN,
+        .flujo_objetivo_mlh = (CONFIG_VOLUMEN_ML * 60 + CONFIG_DURACION_MIN / 2) / CONFIG_DURACION_MIN,   // volumen / tiempo; después lo recalcula la interfaz al cambiar Config
         .umbral_sin_gotas_s = 15,
         .bateria_pct = 100,
         .angulo_grados = 0.0f,
@@ -330,6 +385,10 @@ void app_main(void) {
     }
     encoder_ok = Encoder_Init();
     BuzzerAlarm_Init(BUZZER_ALARM_GPIO);
+#if ESCENARIO != ESCENARIO_NORMAL
+    Alarmas_SetTiempos(&tiempos_prueba);
+    ESP_LOGW(TAG, "ESCENARIO DE PRUEBA: %s (tiempos de alarma acortados, no es la versión final)", NOMBRE_ESCENARIO);
+#endif
     cola_gotas = xQueueCreate(COLA_GOTAS_LARGO, sizeof(int64_t));
     sensor_ok = DropDetection_Init(AvisoGota);
     acel_ok = Inclinacion_Init();   // después del sensor óptico: así sus lecturas por I2C no meten ruido cuando mide el nivel base
