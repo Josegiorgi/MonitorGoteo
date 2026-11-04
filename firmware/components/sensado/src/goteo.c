@@ -15,6 +15,29 @@ static int64_t UltimaGota(void) {
     return horas_us[(siguiente + GOTEO_VENTANA - 1) % GOTEO_VENTANA];
 }
 
+/* Mediana de los intervalos entre las gotas guardadas (cantidad - 1 intervalos), en us. A diferencia
+ * del promedio, un intervalo raro (por ejemplo al abrir o cerrar el clamp) no mueve el resultado.
+ * Se usa la misma idea que la alarma de desviación, así lo que se ve en pantalla coincide con lo que
+ * ella evalúa. Requiere cantidad >= 2. */
+static int64_t MedianaIntervaloUs(void) {
+    int64_t v[GOTEO_VENTANA - 1];
+    uint8_t n = cantidad - 1;
+    int64_t anterior = horas_us[(siguiente + GOTEO_VENTANA - cantidad) % GOTEO_VENTANA];
+
+    for (uint8_t i = 0; i < n; i++) {
+        int64_t actual = horas_us[(siguiente + GOTEO_VENTANA - cantidad + 1 + i) % GOTEO_VENTANA];
+        int64_t intervalo = actual - anterior;
+        int j = i;
+        while (j > 0 && v[j - 1] > intervalo) {   // inserción ordenada
+            v[j] = v[j - 1];
+            j--;
+        }
+        v[j] = intervalo;
+        anterior = actual;
+    }
+    return (n % 2) ? v[n / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
+}
+
 /*==================[external functions definition]==========================*/
 void Goteo_Iniciar(uint16_t factor_goteo, int64_t ahora_us) {
     factor = (factor_goteo > 0) ? factor_goteo : 20;
@@ -51,15 +74,13 @@ uint16_t Goteo_CaudalMlh(int64_t ahora_us) {
     if (cantidad < 2) {
         return 0;
     }
-    int64_t ultima = UltimaGota();
-    int64_t primera = horas_us[(siguiente + GOTEO_VENTANA - cantidad) % GOTEO_VENTANA];
-    int64_t desde_ultima = ahora_us - ultima;
+    int64_t desde_ultima = ahora_us - UltimaGota();
     if (desde_ultima > GOTEO_CAUDAL_CERO_US) {
         return 0;
     }
 
-    // Tiempo medio entre gotas; si la última fue hace más que eso, las gotas se están espaciando
-    int64_t intervalo_us = (ultima - primera) / (cantidad - 1);
+    // Tiempo típico entre gotas (mediana); si la última fue hace más que eso, las gotas se están espaciando
+    int64_t intervalo_us = MedianaIntervaloUs();
     if (desde_ultima > intervalo_us) {
         intervalo_us = desde_ultima;
     }

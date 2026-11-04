@@ -9,8 +9,9 @@
  * equipo, calcula lo que muestra la pantalla de uso:
  *
  * - Volumen infundido (mL) = gotas contadas / factor de goteo (gtt/mL).
- * - Caudal (mL/h) = 3600 / (segundos entre gotas x factor de goteo). El tiempo entre gotas se
- *   promedia con las últimas GOTEO_VENTANA gotas para que el valor no salte a cada gota.
+ * - Caudal (mL/h) = 3600 / (segundos entre gotas x factor de goteo). El tiempo entre gotas es la
+ *   mediana de los últimos GOTEO_VENTANA - 1 intervalos, para que el valor no salte a cada gota ni
+ *   con un intervalo raro (por ejemplo al abrir o cerrar el clamp).
  * - Tiempo (s) = transcurrido desde Goteo_Iniciar().
  * - Segundos sin gotas = desde la última gota, para la alarma de oclusión.
  *
@@ -22,13 +23,14 @@
  * |   Date	    | Description                                    |
  * |:----------:|:-----------------------------------------------|
  * | 16/10/2026 | Document creation                              |
+ * | 04/11/2026 | El caudal pasa de promedio de 8 gotas a mediana de 10 intervalos (GOTEO_VENTANA = 11): al abrir o cerrar el clamp con gotas muy seguidas el valor subía mucho |
  *
  */
 
 #include <stdint.h>
 
 /*==================[macros]=================================================*/
-#define GOTEO_VENTANA          8             /*!< Cantidad de gotas con las que se promedia el caudal */
+#define GOTEO_VENTANA          11            /*!< Gotas guardadas para calcular el caudal: 10 intervalos, como la alarma de desviación */
 #define GOTEO_CAUDAL_CERO_US   30000000LL    /*!< Si pasan más de 30 s sin gotas, el caudal es 0 */
 
 /*==================[external functions declaration]=========================*/
