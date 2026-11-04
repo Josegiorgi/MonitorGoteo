@@ -46,6 +46,12 @@ static float t_obj_s = 1.0f;                /* período objetivo entre gotas */
 static float t_ocl_s = OCL_T_MIN_S;
 static uint32_t gotas = 0;
 
+/* Tiempos que se pueden acortar para probar (Alarmas_SetTiempos). Por defecto, los de la especificación */
+static uint32_t t_desv_estabilizacion_s = DESV_ESTABILIZACION_S;
+static uint32_t t_desv_leve_persist_s = DESV_LEVE_PERSIST_S;
+static uint32_t t_desv_fuerte_persist_s = DESV_FUERTE_PERSIST_S;
+static uint32_t t_rearme_s = REARME_S;
+
 static bool hay_gota = false;
 static int64_t ultima_gota_us = 0;
 static int64_t intervalos_us[DESV_INTERVALOS];  /* buffer circular de los últimos intervalos */
@@ -190,7 +196,7 @@ static void EvaluarDesvio(int64_t ahora_us) {
             Poner(AVISO_DESVIACION_LEVE, false, ahora_us);
             desv_leve_ini_us = -1;
         }
-    } else if (Sostenida(ad > DESV_LEVE_ON, &desv_leve_ini_us, ahora_us, US(DESV_LEVE_PERSIST_S))) {
+    } else if (Sostenida(ad > DESV_LEVE_ON, &desv_leve_ini_us, ahora_us, US(t_desv_leve_persist_s))) {
         Poner(AVISO_DESVIACION_LEVE, true, ahora_us);
     }
 
@@ -200,7 +206,7 @@ static void EvaluarDesvio(int64_t ahora_us) {
             Poner(ALARMA_DESVIACION_FUERTE, false, ahora_us);
             desv_fuerte_ini_us = -1;
         }
-    } else if (Sostenida(ad > DESV_FUERTE_ON, &desv_fuerte_ini_us, ahora_us, US(DESV_FUERTE_PERSIST_S))) {
+    } else if (Sostenida(ad > DESV_FUERTE_ON, &desv_fuerte_ini_us, ahora_us, US(t_desv_fuerte_persist_s))) {
         Poner(ALARMA_DESVIACION_FUERTE, true, ahora_us);
     }
 }
@@ -332,7 +338,7 @@ void Alarmas_Actualizar(const alarmas_entrada_t *e, int64_t ahora_us) {
         desv_fuerte_ini_us = -1;
     } else {
         EvaluarFlujo(ahora_us);
-        if (!flujo_latch && (ahora_us - monitoreo_ini_us) >= US(DESV_ESTABILIZACION_S)) {
+        if (!flujo_latch && (ahora_us - monitoreo_ini_us) >= US(t_desv_estabilizacion_s)) {
             EvaluarDesvio(ahora_us);
         } else {
             desv_leve_ini_us = -1;
@@ -363,7 +369,14 @@ void Alarmas_Silenciar(int64_t ahora_us) {
         return;
     }
     silenciadas |= ALARMA_BIT(e);
-    rearme_us[e] = ahora_us + US(REARME_S);
+    rearme_us[e] = ahora_us + US(t_rearme_s);
+}
+
+void Alarmas_SetTiempos(const alarmas_tiempos_t *t) {
+    t_desv_estabilizacion_s = (t != NULL) ? t->desv_estabilizacion_s : DESV_ESTABILIZACION_S;
+    t_desv_leve_persist_s = (t != NULL) ? t->desv_leve_persist_s : DESV_LEVE_PERSIST_S;
+    t_desv_fuerte_persist_s = (t != NULL) ? t->desv_fuerte_persist_s : DESV_FUERTE_PERSIST_S;
+    t_rearme_s = (t != NULL) ? t->rearme_s : REARME_S;
 }
 
 uint32_t Alarmas_Activas(void) {

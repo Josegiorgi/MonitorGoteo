@@ -39,6 +39,7 @@
  * |   Date	    | Description                                    |
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation                              |
+ * | 04/11/2026 | Alarmas_SetTiempos: permite acortar la estabilización, las persistencias de desvío y el re-armado para probar sin editar las macros. Sin llamarla quedan los de la especificación |
  *
  */
 
@@ -81,6 +82,17 @@ typedef struct {
 } alarmas_entrada_t;
 
 /**
+ * @brief Tiempos que se pueden acortar para probar las alarmas sin esperar minutos. Los de la
+ * especificación son 120 s, 300 s, 120 s y 120 s.
+ */
+typedef struct {
+    uint16_t desv_estabilizacion_s;   /*!< Segundos del Monitoreo en los que no se evalúa el desvío */
+    uint16_t desv_leve_persist_s;     /*!< Segundos que el desvío > 10 % tiene que sostenerse para el aviso */
+    uint16_t desv_fuerte_persist_s;   /*!< Segundos que el desvío > 25 % tiene que sostenerse para la alarma */
+    uint16_t rearme_s;                /*!< Segundos hasta que una alarma alta silenciada se re-arma */
+} alarmas_tiempos_t;
+
+/**
  * @brief Función que se llama cada vez que un evento se activa o se apaga (para registrarlo y
  * enviarlo por BLE con su hora)
  */
@@ -114,6 +126,12 @@ void Alarmas_Actualizar(const alarmas_entrada_t *entrada, int64_t ahora_us);
  * @brief Registra la función que se llama en cada activación o desactivación (NULL para quitarla)
  */
 void Alarmas_SetCallback(alarmas_cb_t cb);
+
+/** @fn void Alarmas_SetTiempos(const alarmas_tiempos_t *tiempos)
+ * @brief Cambia los tiempos de estabilización, persistencia del desvío y re-armado (para pruebas).
+ * Llamarla antes de Alarmas_Iniciar. Con NULL vuelven los valores de la especificación.
+ */
+void Alarmas_SetTiempos(const alarmas_tiempos_t *tiempos);
 
 /** @fn void Alarmas_Silenciar(int64_t ahora_us)
  * @brief Silencia la alarma que se está mostrando (la de mayor prioridad sin silenciar). Si es de
