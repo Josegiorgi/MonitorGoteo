@@ -24,8 +24,9 @@
  * - Fin de sachet: con el volumen en 90 % o más, cortar el goteo.
  * - Desviación: cambiar el goteo con el clamp. Aviso a los 5 min con más de 10 % y alarma a los
  *   2 min con más de 25 %. No se evalúa en los primeros 2 min del Monitoreo.
- * - Batería: con BATERIA_SIMULADA en 1, girar el encoder en la pantalla de Monitoreo baja o sube
- *   la carga simulada de a 5 %. 20 % aviso, 10 % alarma media, 5 % alarma alta.
+ * - Batería: por ahora no se prueba. La carga queda fija en 100 % (no hay medición real todavía) y
+ *   con BATERIA_SIMULADA en 1 girar el encoder en el Monitoreo la baja o sube de a 5 % (20 % aviso,
+ *   10 % alarma media, 5 % alarma alta).
  * - Colocación: inclinar el equipo más de TOLERANCIA_GRADOS (hacia cualquier lado) y mantenerlo 5 s.
  *   Si el acelerómetro deja de responder en el uso, también se da la alarma: la colocación no se
  *   puede verificar.
@@ -60,6 +61,7 @@
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation: interfaz de prueba_interfaz con gotas reales, alarmas y buzzer |
  * | 04/11/2026 | Se integra el ADXL345 (componente inclinacion): autotest "ACEL" real, ángulo en la pantalla de colocación y alarma de colocación. Tolerancia de 2,5° a 8° según ../analisis_bpw34 |
+ * | 04/11/2026 | BATERIA_SIMULADA pasa a 0: la alarma de batería se prueba aparte, después de probar el resto |
  *
  * @author Josefina Giorgi (josefina.giorgi@ingenieria.uner.edu.ar)
  *
@@ -95,7 +97,7 @@
 #define TOLERANCIA_GRADOS     8.0f  /*!< Ángulo máximo (hacia cualquier lado) para dar la colocación por correcta. En las tomas de
                                          ../analisis_bpw34 (c1, c2, c4, c5) la detección empieza a perderse a 9.8° del lado positivo y
                                          a -10.8° del negativo (pocos cortes por lado): se deja ~2° de margen. Antes 2.5° provisorio */
-#define BATERIA_SIMULADA      1     /*!< 1: girar el encoder en el Monitoreo sube/baja la batería simulada de a 5 % */
+#define BATERIA_SIMULADA      0     /*!< 1: girar el encoder en el Monitoreo sube/baja la batería simulada de a 5 %. Está en 0 mientras no se pruebe la alarma de batería: la carga queda en 100 % y no hay alarmas de batería */
 #define BATERIA_PASO_PCT      5
 
 static const char *TAG = "monitor_goteo";
