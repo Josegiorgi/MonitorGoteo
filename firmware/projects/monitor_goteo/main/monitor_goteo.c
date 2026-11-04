@@ -3,7 +3,8 @@
  * \section genDesc General Description
  *
  * Firmware del monitor de goteo con interfaz (OLED + encoder), sensado de gotas con los BPW34 y
- * alarmas con aviso sonoro. Por ahora no mide el ángulo (ADXL345): la colocación no se evalúa.
+ * alarmas con aviso sonoro. Mide el ángulo del equipo con el ADXL345 (componente inclinacion) para
+ * la pantalla y la alarma de colocación.
  *
  * Al arrancar hay que mantener apretado el botón 3 s ("encendido"). Sigue la pantalla de inicio
  * (autotest) y después Autotest -> Colocación -> Config -> Resumen -> Ajuste de goteo ->
@@ -25,6 +26,9 @@
  *   2 min con más de 25 %. No se evalúa en los primeros 2 min del Monitoreo.
  * - Batería: con BATERIA_SIMULADA en 1, girar el encoder en la pantalla de Monitoreo baja o sube
  *   la carga simulada de a 5 %. 20 % aviso, 10 % alarma media, 5 % alarma alta.
+ * - Colocación: inclinar el equipo más de TOLERANCIA_GRADOS (hacia cualquier lado) y mantenerlo 5 s.
+ *   Si el acelerómetro deja de responder en el uso, también se da la alarma: la colocación no se
+ *   puede verificar.
  *
  * Diferencias con la especificación que quedan para cuando se adapte ui.c: la interfaz sigue
  * usando un único ui_alarma_t, así que VOLUMEN_COMPLETO se muestra como "fin de sachet" y, en esa
@@ -39,6 +43,7 @@
  * | Salida amplificador BPW34 n°2    | GPIO_3 (ADC1_CH3)   |
  * | OLED SCL                         | GPIO_7              |
  * | OLED SDA                         | GPIO_21             |
+ * | ADXL345 SCL / SDA                | GPIO_7 / GPIO_21 (mismo bus que la OLED) |
  * | Encoder CLK                      | GPIO_9              |
  * | Encoder DT                       | GPIO_8              |
  * | Encoder pulsador (SW)            | GPIO_20             |
@@ -54,6 +59,7 @@
  * |   Date	    | Description                                    |
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation: interfaz de prueba_interfaz con gotas reales, alarmas y buzzer |
+ * | 04/11/2026 | Se integra el ADXL345 (componente inclinacion): autotest "ACEL" real, ángulo en la pantalla de colocación y alarma de colocación. Tolerancia de 2,5° a 8° según ../analisis_bpw34 |
  *
  * @author Josefina Giorgi (josefina.giorgi@ingenieria.uner.edu.ar)
  *
@@ -61,6 +67,7 @@
 
 /*==================[inclusions]=============================================*/
 #include <stdbool.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -73,6 +80,7 @@
 #include "alarmas.h"
 #include "buzzer_alarm.h"
 #include "drop_detection.h"
+#include "inclinacion.h"
 
 /*==================[macros and definitions]=================================*/
 #define ENCENDIDO_MS          3000  /*!< Tiempo que hay que mantener apretado el botón para encender */
@@ -84,7 +92,9 @@
 #define REFRESCO_MIN_MS       250   /*!< Mínimo entre dos redibujados de pantalla provocados por gotas */
 #define COLA_GOTAS_LARGO      32
 
-#define TOLERANCIA_GRADOS     2.5f  /*!< Provisorio: sin ADXL345 el ángulo se da por correcto */
+#define TOLERANCIA_GRADOS     8.0f  /*!< Ángulo máximo (hacia cualquier lado) para dar la colocación por correcta. En las tomas de
+                                         ../analisis_bpw34 (c1, c2, c4, c5) la detección empieza a perderse a 9.8° del lado positivo y
+                                         a -10.8° del negativo (pocos cortes por lado): se deja ~2° de margen. Antes 2.5° provisorio */
 #define BATERIA_SIMULADA      1     /*!< 1: girar el encoder en el Monitoreo sube/baja la batería simulada de a 5 % */
 #define BATERIA_PASO_PCT      5
 
@@ -101,6 +111,8 @@ static ui_chequeo_t chequeos[UI_CHEQUEOS_MAX] = {
 static bool oled_ok = false;
 static bool encoder_ok = false;
 static bool sensor_ok = false;
+static bool acel_ok = false;
+static bool angulo_valido = false;     /*!< true si la última lectura del acelerómetro es confiable */
 static bool midiendo = false;          /*!< true desde que empieza el Ajuste de goteo hasta que termina la infusión */
 static QueueHandle_t cola_gotas = NULL;   /*!< Hora de cada gota detectada (de la tarea del sensor al main) */
 static int64_t ultimo_refresco_us = 0;
@@ -130,7 +142,19 @@ static bool ChequearEncoder(void) {
 }
 
 static bool ChequearAcelerometro(void) {
-    return true;   // TODO: se mide el ángulo con el ADXL345 (leer DEVID 0xE5)
+    if (!acel_ok) {
+        acel_ok = Inclinacion_Init();   // el autotest reintenta cada segundo: por si el chip tardó en responder
+    }
+    return acel_ok && Inclinacion_Valida(NULL);
+}
+
+/** Carga en datos el ángulo del equipo y si la colocación es correcta. Si el acelerómetro no
+ * responde, la colocación no se puede verificar: se da por incorrecta en vez de ignorarlo. */
+static void ActualizarAngulo(void) {
+    float grados = 0.0f;
+    angulo_valido = Inclinacion_Valida(&grados);
+    datos.angulo_grados = angulo_valido ? grados : 0.0f;
+    datos.colocacion_ok = angulo_valido && fabsf(grados) <= datos.tolerancia_grados;
 }
 
 static bool ChequearFotodiodos(void) {
@@ -285,7 +309,7 @@ static void EvaluarAlarmas(int64_t ahora) {
     alarmas_entrada_t entrada = {
         .en_monitoreo = EnMonitoreo(),
         .en_pausa = datos.en_pausa,
-        .angulo_grados = datos.angulo_grados,
+        .angulo_grados = angulo_valido ? datos.angulo_grados : 2.0f * datos.tolerancia_grados,   // sin lectura confiable, fuera de la tolerancia
         .tolerancia_grados = datos.tolerancia_grados,
         .base_optica_ok = true,          // TODO: nivel de base del fotodiodo en rango
         .bateria_pct = datos.bateria_pct,
@@ -306,6 +330,10 @@ void app_main(void) {
     BuzzerAlarm_Init(BUZZER_ALARM_GPIO);
     cola_gotas = xQueueCreate(COLA_GOTAS_LARGO, sizeof(int64_t));
     sensor_ok = DropDetection_Init(AvisoGota);
+    acel_ok = Inclinacion_Init();   // después del sensor óptico: así sus lecturas por I2C no meten ruido cuando mide el nivel base
+    if (!acel_ok) {
+        ESP_LOGE(TAG, "el acelerómetro no responde (se reintenta en el autotest)");
+    }
 
     // "Encendido": la pantalla queda apagada hasta mantener el botón apretado
     ESP_LOGI(TAG, "Mantener el botón %d ms para encender", ENCENDIDO_MS);
@@ -314,6 +342,7 @@ void app_main(void) {
     AutotestInicio();
     UI_SetChequeos(chequeos, UI_CHEQUEOS_MAX);
     DatosIniciales();
+    ActualizarAngulo();   // para que la pantalla de Colocación no parta de un "correcto" por defecto
     UI_Ir(UI_PANTALLA_AUTOTEST, &datos);
 
     int64_t ultimo_tick_us = esp_timer_get_time();
@@ -362,6 +391,7 @@ void app_main(void) {
 
         if ((ahora - ultimo_tick_us) / 1000 >= PERIODO_TICK_MS) {
             ultimo_tick_us = ahora;
+            ActualizarAngulo();
             ActualizarMedicion(ahora);
             EvaluarAlarmas(ahora);
             UI_Actualizar(&datos);
