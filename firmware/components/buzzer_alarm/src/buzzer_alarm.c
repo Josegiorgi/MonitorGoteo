@@ -16,20 +16,27 @@ typedef struct {
 } paso_t;
 
 /*==================[internal data definition]===============================*/
+/* Todos los tonos están entre 3300 y 4200 Hz: según la curva de la hoja de datos del buzzer
+ * (CPT-2016-75-SMT-TR) es donde más suena (~83 dB entre 3,4 y 4,2 kHz; a 1 kHz y a 2 kHz queda
+ * 13 a 17 dB más abajo). Como la banda es angosta, los patrones se distinguen sobre todo por el
+ * ritmo y la cantidad de pitidos, y poco por el tono.
+ * Es una decisión de prototipo de laboratorio, para que las alarmas se escuchen bien. Una versión
+ * más madura debería ajustarse a IEC 60601-1-8 e IEC 60601-2-24 (nivel sonoro mínimo y
+ * características de las señales sonoras), y medir el nivel a 1 m. */
 static const paso_t p_volumen_completo[] = {
-    {2400, 120}, {3000, 120}, {2400, 120}, {3000, 120}, {2400, 120}, {3000, 120}, {0, 700}, {0, 0}};
+    {3600, 120}, {4200, 120}, {3600, 120}, {4200, 120}, {3600, 120}, {4200, 120}, {0, 700}, {0, 0}};
 static const paso_t p_flujo_detenido[] = {
-    {2700, 100}, {0, 100}, {2700, 100}, {0, 100}, {2700, 100}, {0, 900}, {0, 0}};
+    {4000, 100}, {0, 100}, {4000, 100}, {0, 100}, {4000, 100}, {0, 900}, {0, 0}};
 static const paso_t p_fin_sachet[] = {
-    {1500, 200}, {2000, 200}, {2500, 300}, {0, 1500}, {0, 0}};
+    {3400, 200}, {3800, 200}, {4200, 300}, {0, 1500}, {0, 0}};
 static const paso_t p_colocacion[] = {
-    {1800, 150}, {0, 150}, {1800, 150}, {0, 1200}, {0, 0}};
+    {3500, 150}, {0, 150}, {3500, 150}, {0, 1200}, {0, 0}};
 static const paso_t p_bateria_critica[] = {
-    {1000, 500}, {0, 200}, {1000, 500}, {0, 1000}, {0, 0}};
+    {3300, 500}, {0, 200}, {3300, 500}, {0, 1000}, {0, 0}};
 static const paso_t p_desviacion_fuerte[] = {
-    {1500, 250}, {2200, 250}, {1500, 250}, {2200, 250}, {0, 900}, {0, 0}};
+    {3400, 250}, {4200, 250}, {3400, 250}, {4200, 250}, {0, 900}, {0, 0}};
 static const paso_t p_bateria_baja[] = {
-    {1000, 700}, {0, 1500}, {0, 0}};
+    {3300, 700}, {0, 1500}, {0, 0}};
 
 static const paso_t *const patrones[BUZZER_ALARM_CANTIDAD] = {
     [BUZZER_ALARM_VOLUMEN_COMPLETO]  = p_volumen_completo,

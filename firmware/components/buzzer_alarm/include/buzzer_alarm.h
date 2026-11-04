@@ -10,17 +10,18 @@
  * Cada patrón es una secuencia de pasos (frecuencia, duración) que se repite hasta
  * BuzzerAlarm_Stop(). Se reproducen desde una tarea propia, así que BuzzerAlarm_Start() no
  * bloquea. Los patrones se distinguen por ritmo y por tono (no solo por tono), para que se
- * reconozcan sin mirar la pantalla:
+ * reconozcan sin mirar la pantalla. Todos los tonos están entre 3300 y 4200 Hz, la banda donde el
+ * buzzer suena más fuerte, así que se distinguen sobre todo por el ritmo:
  *
- * | Patrón            | Prioridad | Sonido                                         |
- * |:------------------|:---------:|:-----------------------------------------------|
- * | VOLUMEN_COMPLETO  | alta      | sirena rápida de dos tonos agudos, pausa corta |
- * | FLUJO_DETENIDO    | alta      | 3 pitidos rápidos y agudos, pausa larga        |
- * | FIN_SACHET        | alta      | 3 notas ascendentes, pausa larga               |
- * | COLOCACION        | alta      | 2 pitidos cortos de tono medio, pausa          |
- * | BATERIA_CRITICA   | alta      | 2 pitidos largos y graves, pausa               |
- * | DESVIACION_FUERTE | media     | dos tonos alternados (sirena lenta), pausa     |
- * | BATERIA_BAJA      | media     | un pitido largo y grave, pausa larga           |
+ * | Patrón            | Prioridad | Sonido                                                   |
+ * |:------------------|:---------:|:---------------------------------------------------------|
+ * | VOLUMEN_COMPLETO  | alta      | sirena rápida 3600/4200 Hz, pausa corta                  |
+ * | FLUJO_DETENIDO    | alta      | 3 pitidos rápidos a 4000 Hz, pausa larga                 |
+ * | FIN_SACHET        | alta      | 3 notas ascendentes 3400/3800/4200 Hz, pausa larga       |
+ * | COLOCACION        | alta      | 2 pitidos cortos a 3500 Hz, pausa                        |
+ * | BATERIA_CRITICA   | alta      | 2 pitidos largos a 3300 Hz, pausa                        |
+ * | DESVIACION_FUERTE | media     | dos tonos alternados 3400/4200 Hz (sirena lenta), pausa |
+ * | BATERIA_BAJA      | media     | un pitido largo a 3300 Hz, pausa larga                   |
  *
  * @note Los patrones son los eventos con sonido de la especificación de alarmas, en el mismo
  * orden de prioridad (de mayor a menor) que los eventos del componente alarmas. Los avisos no
@@ -32,6 +33,7 @@
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation                              |
  * | 29/10/2026 | Patrones de la especificación de alarmas: se suman VOLUMEN_COMPLETO y BATERIA_CRITICA y se ordenan por prioridad |
+ * | 04/11/2026 | Todos los tonos pasan a 3300-4200 Hz, donde el buzzer suena más fuerte según su hoja de datos (antes 1000-3000 Hz, 13 a 17 dB más abajo). Decisión de prototipo: una versión más madura debería ajustarse a IEC 60601-1-8 e IEC 60601-2-24 |
  *
  */
 
