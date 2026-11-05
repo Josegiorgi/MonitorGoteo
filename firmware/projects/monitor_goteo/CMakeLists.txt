@@ -9,7 +9,7 @@ list(APPEND EXTRA_COMPONENT_DIRS "../../components")
 
 # Restrict compiled components to isolate the framework and hide unwanted drivers
 set(COMPONENTS main drivers middleware u8g2 display interfaz_usuario sensado
-               buzzer_alarm alarmas optical_sensor drop_detection inclinacion)
+               buzzer_alarm alarmas optical_sensor drop_detection inclinacion bateria nvs_flash registro)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(monitor_goteo)
