@@ -46,6 +46,9 @@
             "path": "./projects/test_i2c_scan"
         },
         {
+            "path": "./projects/test_bateria"
+        },
+        {
             "path": "./projects/monitor_goteo"
         }
     ],

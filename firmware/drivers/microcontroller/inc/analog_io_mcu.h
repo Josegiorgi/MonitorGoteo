@@ -21,6 +21,7 @@
  * |   Date	    | Description                                    						|
  * |:----------:|:----------------------------------------------------------------------|
  * | 24/02/2024 | Document creation		                         						|
+ * | 05/11/2026 | Se agrega CH4 (GPIO_4, ADC1_CH4 del ESP32-C3) para medir la batería	|
  * 
  **/
 
@@ -31,7 +32,8 @@ typedef enum adc_ch {
 	CH0 = 0,				/*!< Channel 0 */
 	CH1,					/*!< Channel 1 */
 	CH2,					/*!< Channel 2 */
-	CH3						/*!< Channel 3 */
+	CH3,					/*!< Channel 3 */
+	CH4						/*!< Channel 4 (GPIO_4, solo en el ESP32-C3) */
 } adc_ch_t;
 
 typedef enum adc_mode {
@@ -46,7 +48,7 @@ typedef enum adc_mode {
  * 
  */
 typedef struct {			
-	adc_ch_t input;			/*!< Inputs: CH0, CH1, CH2, CH3 */
+	adc_ch_t input;			/*!< Inputs: CH0, CH1, CH2, CH3 (y CH4 en el ESP32-C3) */
 	adc_mode_t mode;		/*!< Mode: single read or continuous read */
 	void *func_p;			/*!< Pointer to callback function for convertion end (only for continuous mode) */
 	void *param_p;			/*!< Pointer to callback function parameters (only for continuous mode) */
