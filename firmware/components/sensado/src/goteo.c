@@ -6,6 +6,7 @@
 static uint16_t factor = 20;                 /* gotas por mL */
 static uint32_t gotas = 0;                   /* gotas contadas desde el inicio */
 static int64_t t_inicio_us = 0;
+static int64_t t_ref_us = 0;                 /* desde cuándo se cuentan los segundos sin gotas si todavía no cayó ninguna */
 static int64_t horas_us[GOTEO_VENTANA];      /* hora de las últimas gotas (buffer circular) */
 static uint8_t cantidad = 0;                 /* cuántas hay cargadas en horas_us */
 static uint8_t siguiente = 0;                /* dónde se guarda la próxima */
@@ -43,13 +44,21 @@ void Goteo_Iniciar(uint16_t factor_goteo, int64_t ahora_us) {
     factor = (factor_goteo > 0) ? factor_goteo : 20;
     gotas = 0;
     t_inicio_us = ahora_us;
+    t_ref_us = ahora_us;
     cantidad = 0;
     siguiente = 0;
     memset(horas_us, 0, sizeof(horas_us));
 }
 
+void Goteo_Retomar(uint16_t factor_goteo, uint32_t gotas_contadas, uint32_t tiempo_s, int64_t ahora_us) {
+    Goteo_Iniciar(factor_goteo, ahora_us);
+    gotas = gotas_contadas;
+    t_inicio_us = ahora_us - (int64_t)tiempo_s * 1000000;   // el tiempo continúa desde el último valor guardado
+}
+
 void Goteo_ReiniciarTiempo(int64_t ahora_us) {
     t_inicio_us = ahora_us;
+    t_ref_us = ahora_us;
 }
 
 void Goteo_Gota(int64_t ahora_us) {
@@ -99,8 +108,8 @@ uint32_t Goteo_TiempoS(int64_t ahora_us) {
 }
 
 uint16_t Goteo_SegundosSinGotas(int64_t ahora_us) {
-    // Si todavía no cayó ninguna gota (o la última fue antes de reiniciar el tiempo), se cuenta desde t_inicio_us
-    int64_t ultima_us = (cantidad > 0 && UltimaGota() > t_inicio_us) ? UltimaGota() : t_inicio_us;
+    // Si todavía no cayó ninguna gota (o la última fue antes de reiniciar el tiempo), se cuenta desde t_ref_us
+    int64_t ultima_us = (cantidad > 0 && UltimaGota() > t_ref_us) ? UltimaGota() : t_ref_us;
     int64_t desde_us = ahora_us - ultima_us;
     int64_t s = (desde_us > 0) ? desde_us / 1000000 : 0;
     return (s > UINT16_MAX) ? UINT16_MAX : (uint16_t)s;

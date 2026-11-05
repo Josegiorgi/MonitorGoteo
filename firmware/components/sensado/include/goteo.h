@@ -42,6 +42,12 @@
  */
 void Goteo_Iniciar(uint16_t factor_goteo, int64_t ahora_us);
 
+/** @fn void Goteo_Retomar(uint16_t factor_goteo, uint32_t gotas, uint32_t tiempo_s, int64_t ahora_us)
+ * @brief Retoma una infusión tras un reinicio: pone el contador de gotas y el tiempo transcurrido
+ * en los últimos valores guardados.
+ */
+void Goteo_Retomar(uint16_t factor_goteo, uint32_t gotas, uint32_t tiempo_s, int64_t ahora_us);
+
 /** @fn void Goteo_ReiniciarTiempo(int64_t ahora_us)
  * @brief Pone en cero solo el tiempo (y los segundos sin gotas), sin tocar las gotas ni el volumen.
  *

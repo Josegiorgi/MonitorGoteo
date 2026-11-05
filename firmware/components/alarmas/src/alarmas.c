@@ -20,8 +20,8 @@
 #define DESV_LEVE_ON            0.10f
 #define DESV_LEVE_OFF           0.08f
 #define DESV_LEVE_PERSIST_S     300
-#define DESV_FUERTE_ON          0.25f
-#define DESV_FUERTE_OFF         0.23f
+#define DESV_FUERTE_ON          0.30f
+#define DESV_FUERTE_OFF         0.28f
 #define DESV_FUERTE_PERSIST_S   120
 
 /* Fin de infusión (sección 3) */
@@ -35,6 +35,10 @@
 
 /* Colocación (sección 5) */
 #define COL_PERSIST_S           5         /*!< Tiempo que la condición tiene que sostenerse para activarse o apagarse */
+
+/* Goteo sin monitoreo (inicio y navegación, sección 3.2) */
+#define GSM_PERSIST_S           120       /*!< Gotas continuas durante este tiempo activan la alarma */
+#define GSM_HUECO_S             45        /*!< Si pasa más que esto sin gotas, la racha se corta (cubre goteos de hasta ~1,3 gtt/min) */
 
 /* Silenciado (sección 0) */
 #define REARME_S                120
@@ -51,6 +55,8 @@ static uint32_t t_desv_estabilizacion_s = DESV_ESTABILIZACION_S;
 static uint32_t t_desv_leve_persist_s = DESV_LEVE_PERSIST_S;
 static uint32_t t_desv_fuerte_persist_s = DESV_FUERTE_PERSIST_S;
 static uint32_t t_rearme_s = REARME_S;
+static uint32_t t_gsm_persist_s = GSM_PERSIST_S;
+static uint32_t t_gsm_hueco_s = GSM_HUECO_S;
 
 static bool hay_gota = false;
 static int64_t ultima_gota_us = 0;
@@ -72,6 +78,9 @@ static bool col_activa = false;
 static int64_t col_cambio_ini_us = -1;
 static bool vol_incierto = false;
 
+static int64_t gsm_ini_us = 0;              /* inicio de la racha de gotas sin infusión activa */
+static int64_t gsm_ultima_us = 0;           /* última gota sin infusión activa (0 = ninguna) */
+
 static uint8_t bat_nivel = 0;               /* 0 = normal, 1 = aviso, 2 = baja, 3 = crítica */
 
 static uint32_t activas = 0;
@@ -80,9 +89,9 @@ static int64_t rearme_us[ALARMAS_CANTIDAD];
 static alarmas_cb_t callback = NULL;
 
 static const char *const nombres[ALARMAS_CANTIDAD] = {
-    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "COLOCACION", "BATERIA_CRITICA",
-    "DESVIACION_FUERTE", "BATERIA_BAJA", "AVISO_DESVIACION_LEVE", "AVISO_PROXIMO_A_FINALIZAR",
-    "AVISO_BATERIA"};
+    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "COLOCACION", "FALLA_EQUIPO", "BATERIA_CRITICA",
+    "DESVIACION_FUERTE", "GOTEO_SIN_MONITOREO", "BATERIA_BAJA", "AVISO_DESVIACION_LEVE",
+    "AVISO_PROXIMO_A_FINALIZAR", "AVISO_BATERIA"};
 
 /*==================[internal functions definition]==========================*/
 static float GotasMinObjetivo(uint16_t fg, uint16_t vol, uint16_t dur_min) {
@@ -238,10 +247,9 @@ bool Alarmas_ResumenValido(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t 
     return GotasMinObjetivo(factor_goteo, volumen_ml, duracion_min) >= GOTAS_MIN_OBJETIVO;
 }
 
-void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duracion_min, int64_t ahora_us) {
-    factor = (factor_goteo > 0) ? factor_goteo : 20;
-    vol_prog_ml = volumen_ml;
-    float gmin = GotasMinObjetivo(factor, volumen_ml, duracion_min);
+/** Calcula el período objetivo entre gotas y T_ocl con la configuración actual (factor y volumen) */
+static void CalcularObjetivo(uint16_t duracion_min) {
+    float gmin = GotasMinObjetivo(factor, vol_prog_ml, duracion_min);
     t_obj_s = (gmin > 0.0f) ? 60.0f / gmin : OCL_T_MAX_S;
     t_ocl_s = OCL_N * t_obj_s;
     if (t_ocl_s < OCL_T_MIN_S) {
@@ -250,6 +258,12 @@ void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duraci
     if (t_ocl_s > OCL_T_MAX_S) {
         t_ocl_s = OCL_T_MAX_S;
     }
+}
+
+void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duracion_min, int64_t ahora_us) {
+    factor = (factor_goteo > 0) ? factor_goteo : 20;
+    vol_prog_ml = volumen_ml;
+    CalcularObjetivo(duracion_min);
 
     gotas = 0;
     hay_gota = false;
@@ -267,9 +281,30 @@ void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duraci
     col_cambio_ini_us = -1;
     vol_incierto = false;
     bat_nivel = 0;
+    gsm_ini_us = 0;
+    gsm_ultima_us = 0;
     activas = 0;
     silenciadas = 0;
     memset(rearme_us, 0, sizeof(rearme_us));
+}
+
+void Alarmas_SetGotas(uint32_t n) {
+    gotas = n;
+}
+
+void Alarmas_GotaSinMonitoreo(int64_t ahora_us) {
+    if (gsm_ultima_us == 0 || (ahora_us - gsm_ultima_us) > US(t_gsm_hueco_s)) {
+        gsm_ini_us = ahora_us;   // empieza una racha nueva
+    }
+    gsm_ultima_us = ahora_us;
+}
+
+void Alarmas_CambiarDuracion(uint16_t duracion_min) {
+    CalcularObjetivo(duracion_min);
+    ReiniciarIntervalos();   // los intervalos medidos eran del goteo anterior
+    ref_ocl_us = 0;          // la espera de T_ocl se vuelve a contar desde que empiece el Monitoreo
+    desv_leve_ini_us = -1;
+    desv_fuerte_ini_us = -1;
 }
 
 void Alarmas_Gota(int64_t ahora_us) {
@@ -303,6 +338,11 @@ void Alarmas_Gota(int64_t ahora_us) {
 
 void Alarmas_Actualizar(const alarmas_entrada_t *e, int64_t ahora_us) {
     EvaluarBateria(e, ahora_us);
+    Poner(ALARMA_FALLA_EQUIPO, e->falla_equipo, ahora_us);
+
+    // Goteo sin monitoreo: gotas continuas durante GSM_PERSIST_S sin infusión activa. Se resuelve cuando se cortan
+    bool racha = gsm_ultima_us != 0 && (ahora_us - gsm_ultima_us) <= US(t_gsm_hueco_s);
+    Poner(ALARMA_GOTEO_SIN_MONITOREO, e->sin_infusion && racha && (gsm_ultima_us - gsm_ini_us) >= US(t_gsm_persist_s), ahora_us);
 
     if (!e->en_monitoreo) {
         // Fuera del Monitoreo no se evalúa nada más y se apagan los eventos de la infusión
@@ -377,6 +417,8 @@ void Alarmas_SetTiempos(const alarmas_tiempos_t *t) {
     t_desv_leve_persist_s = (t != NULL) ? t->desv_leve_persist_s : DESV_LEVE_PERSIST_S;
     t_desv_fuerte_persist_s = (t != NULL) ? t->desv_fuerte_persist_s : DESV_FUERTE_PERSIST_S;
     t_rearme_s = (t != NULL) ? t->rearme_s : REARME_S;
+    t_gsm_persist_s = (t != NULL && t->gsm_persist_s > 0) ? t->gsm_persist_s : GSM_PERSIST_S;
+    t_gsm_hueco_s = (t != NULL && t->gsm_hueco_s > 0) ? t->gsm_hueco_s : GSM_HUECO_S;
 }
 
 uint32_t Alarmas_Activas(void) {

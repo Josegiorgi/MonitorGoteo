@@ -31,26 +31,43 @@ static const paso_t p_fin_sachet[] = {
     {3400, 200}, {3800, 200}, {4200, 300}, {0, 1500}, {0, 0}};
 static const paso_t p_colocacion[] = {
     {3500, 150}, {0, 150}, {3500, 150}, {0, 1200}, {0, 0}};
+static const paso_t p_falla_equipo[] = {
+    {4200, 100}, {3300, 100}, {4200, 100}, {3300, 100}, {4200, 100}, {3300, 100}, {0, 800}, {0, 0}};
 static const paso_t p_bateria_critica[] = {
     {3300, 500}, {0, 200}, {3300, 500}, {0, 1000}, {0, 0}};
 static const paso_t p_desviacion_fuerte[] = {
     {3400, 250}, {4200, 250}, {3400, 250}, {4200, 250}, {0, 900}, {0, 0}};
+static const paso_t p_goteo_sin_monitoreo[] = {
+    {3800, 400}, {0, 300}, {3800, 400}, {0, 1400}, {0, 0}};
 static const paso_t p_bateria_baja[] = {
     {3300, 700}, {0, 1500}, {0, 0}};
 
-static const paso_t *const patrones[BUZZER_ALARM_CANTIDAD] = {
+/* Sonidos de la interfaz: también entre 3300 y 4200 Hz, que es donde el buzzer suena más */
+static const paso_t p_encendido[] = {{3300, 110}, {3700, 110}, {4200, 220}, {0, 0}};
+static const paso_t p_apagado[] = {{4200, 110}, {3700, 110}, {3300, 220}, {0, 0}};
+static const paso_t p_click[] = {{3800, 50}, {0, 0}};
+static const paso_t p_giro[] = {{3400, 12}, {0, 0}};
+
+#define TOTAL_PATRONES (BUZZER_ALARM_CANTIDAD + BUZZER_EFECTO_CANTIDAD)
+static const paso_t *const patrones[TOTAL_PATRONES] = {
     [BUZZER_ALARM_VOLUMEN_COMPLETO]  = p_volumen_completo,
     [BUZZER_ALARM_FLUJO_DETENIDO]    = p_flujo_detenido,
     [BUZZER_ALARM_FIN_SACHET]        = p_fin_sachet,
     [BUZZER_ALARM_COLOCACION]        = p_colocacion,
+    [BUZZER_ALARM_FALLA_EQUIPO]      = p_falla_equipo,
     [BUZZER_ALARM_BATERIA_CRITICA]   = p_bateria_critica,
     [BUZZER_ALARM_DESVIACION_FUERTE] = p_desviacion_fuerte,
+    [BUZZER_ALARM_GOTEO_SIN_MONITOREO] = p_goteo_sin_monitoreo,
     [BUZZER_ALARM_BATERIA_BAJA]      = p_bateria_baja,
+    [BUZZER_ALARM_CANTIDAD + BUZZER_EFECTO_ENCENDIDO] = p_encendido,
+    [BUZZER_ALARM_CANTIDAD + BUZZER_EFECTO_APAGADO]   = p_apagado,
+    [BUZZER_ALARM_CANTIDAD + BUZZER_EFECTO_CLICK]     = p_click,
+    [BUZZER_ALARM_CANTIDAD + BUZZER_EFECTO_GIRO]      = p_giro,
 };
 
 static const char *const nombres[BUZZER_ALARM_CANTIDAD] = {
-    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "COLOCACION",
-    "BATERIA_CRITICA", "DESVIACION_FUERTE", "BATERIA_BAJA"};
+    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "COLOCACION", "FALLA_EQUIPO",
+    "BATERIA_CRITICA", "DESVIACION_FUERTE", "GOTEO_SIN_MONITOREO", "BATERIA_BAJA"};
 
 static TaskHandle_t tarea = NULL;
 static volatile bool tono_activo = false;  /*!< true mientras el buzzer emite un tono */
@@ -94,6 +111,9 @@ static void TareaPatrones(void *arg) {
         }
         BuzzerOff();
         tono_activo = false;
+        if (p >= BUZZER_ALARM_CANTIDAD && version == ver) {
+            patron_actual = -1;   // un sonido de la interfaz suena una sola vez; las alarmas se repiten
+        }
     }
 }
 
@@ -128,6 +148,25 @@ void BuzzerAlarm_Stop(void) {
 
 bool BuzzerAlarm_Sonando(void) {
     return tono_activo;
+}
+
+void BuzzerAlarm_Efecto(buzzer_efecto_t efecto) {
+    if (tarea == NULL || efecto >= BUZZER_EFECTO_CANTIDAD) {
+        return;
+    }
+    if (patron_actual >= 0 && patron_actual < BUZZER_ALARM_CANTIDAD) {
+        return;   // hay una alarma sonando: no se la tapa
+    }
+    patron_actual = BUZZER_ALARM_CANTIDAD + efecto;
+    version++;
+    xTaskNotifyGive(tarea);
+}
+
+void BuzzerAlarm_EsperarFin(uint32_t max_ms) {
+    while (max_ms > 0 && patron_actual >= BUZZER_ALARM_CANTIDAD) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        max_ms = (max_ms > 10) ? max_ms - 10 : 0;
+    }
 }
 
 const char *BuzzerAlarm_Nombre(buzzer_alarm_t patron) {

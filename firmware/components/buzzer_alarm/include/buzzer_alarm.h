@@ -53,11 +53,24 @@ typedef enum {
     BUZZER_ALARM_FLUJO_DETENIDO,
     BUZZER_ALARM_FIN_SACHET,
     BUZZER_ALARM_COLOCACION,
+    BUZZER_ALARM_FALLA_EQUIPO,
     BUZZER_ALARM_BATERIA_CRITICA,
     BUZZER_ALARM_DESVIACION_FUERTE,
+    BUZZER_ALARM_GOTEO_SIN_MONITOREO,
     BUZZER_ALARM_BATERIA_BAJA,
     BUZZER_ALARM_CANTIDAD,          /*!< Cantidad de patrones (no es un patrón) */
 } buzzer_alarm_t;
+
+/**
+ * @brief Sonidos de la interfaz (no son alarmas): suenan una sola vez y no cortan una alarma que esté sonando
+ */
+typedef enum {
+    BUZZER_EFECTO_ENCENDIDO = 0,    /*!< Tres tonos ascendentes al encender */
+    BUZZER_EFECTO_APAGADO,          /*!< Tres tonos descendentes al apagar */
+    BUZZER_EFECTO_CLICK,            /*!< Pitido corto al apretar el botón */
+    BUZZER_EFECTO_GIRO,             /*!< Tic muy corto con cada paso del giro */
+    BUZZER_EFECTO_CANTIDAD,
+} buzzer_efecto_t;
 
 /*==================[external functions declaration]=========================*/
 
@@ -82,6 +95,18 @@ void BuzzerAlarm_Stop(void);
  * no medir la batería mientras suena: el buzzer hace caer momentáneamente la tensión.
  */
 bool BuzzerAlarm_Sonando(void);
+
+/** @fn void BuzzerAlarm_Efecto(buzzer_efecto_t efecto)
+ * @brief Hace sonar un sonido de la interfaz una vez. Si hay una alarma sonando no hace nada (no la
+ * tapa); si había otro sonido de la interfaz, lo reemplaza.
+ */
+void BuzzerAlarm_Efecto(buzzer_efecto_t efecto);
+
+/** @fn void BuzzerAlarm_EsperarFin(uint32_t max_ms)
+ * @brief Espera a que termine el sonido de la interfaz que está sonando (hasta max_ms). Sirve para no
+ * cortar el sonido de apagado con un reinicio.
+ */
+void BuzzerAlarm_EsperarFin(uint32_t max_ms);
 
 /** @fn const char *BuzzerAlarm_Nombre(buzzer_alarm_t patron)
  * @brief Nombre corto del patrón, para mensajes de depuración

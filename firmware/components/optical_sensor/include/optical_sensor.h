@@ -57,5 +57,10 @@ bool OpticalSensor_Init(optical_sensor_cb_t cb);
  */
 float OpticalSensor_BaseMv(int canal);
 
+/** @fn void OpticalSensor_Stop(void)
+ * @brief Detiene el muestreo (reposo: el sensado queda apagado). Se vuelve a iniciar reiniciando el equipo.
+ */
+void OpticalSensor_Stop(void);
+
 /** @} */
 #endif /* OPTICAL_SENSOR_H */

@@ -17,14 +17,16 @@
  * | FLUJO_DETENIDO            | alta         | sin gotas más de T_ocl y V infundido < 90 %              |
  * | FIN_SACHET                | alta         | sin gotas más de T_ocl y V infundido >= 90 %             |
  * | COLOCACION                | alta         | inclinación o base óptica fuera de rango, 5 s seguidos   |
+ * | FALLA_EQUIPO              | alta         | un chequeo del autotest falló al retomar tras un reinicio |
  * | BATERIA_CRITICA           | alta         | batería <= 5 %                                           |
- * | DESVIACION_FUERTE         | media        | desvío del caudal > 25 % durante 2 min                   |
+ * | DESVIACION_FUERTE         | media        | desvío del caudal > 30 % durante 2 min                   |
+ * | GOTEO_SIN_MONITOREO       | media        | sin infusión activa, gotas continuas durante 2 min       |
  * | BATERIA_BAJA              | media        | batería <= 10 %                                          |
  * | AVISO_DESVIACION_LEVE     | aviso        | desvío del caudal > 10 % durante 5 min                   |
  * | AVISO_PROXIMO_A_FINALIZAR | aviso        | V infundido >= 90 % del programado                       |
  * | AVISO_BATERIA             | aviso        | batería <= 20 %                                          |
  *
- * Los siete primeros suenan (mismo orden que buzzer_alarm_t); los avisos no suenan. FLUJO_DETENIDO
+ * Los nueve primeros suenan (mismo orden que buzzer_alarm_t); los avisos no suenan. FLUJO_DETENIDO
  * y FIN_SACHET son excluyentes. Los tres escalones de batería también (queda solo el peor).
  *
  * @note Los parámetros (T_ocl, umbrales, persistencias) están como macros en alarmas.c. Los
@@ -39,6 +41,10 @@
  * |   Date	    | Description                                    |
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation                              |
+ * | 05/11/2026 | Alarmas_SetTiempos también acorta el goteo sin monitoreo (gsm_persist_s, gsm_hueco_s) |
+ * | 05/11/2026 | Eventos nuevos FALLA_EQUIPO y GOTEO_SIN_MONITOREO; Alarmas_SetGotas |
+ * | 05/11/2026 | Alarmas_CambiarDuracion: cambio de datos en plena infusión sin reiniciar el contador |
+ * | 05/11/2026 | La alarma de desvío fuerte pasa de 25 % a 30 % (se apaga en 28 %), según la especificación actual |
  * | 04/11/2026 | Alarmas_SetTiempos: permite acortar la estabilización, las persistencias de desvío y el re-armado para probar sin editar las macros. Sin llamarla quedan los de la especificación |
  *
  */
@@ -55,8 +61,10 @@ typedef enum {
     ALARMA_FLUJO_DETENIDO,
     ALARMA_FIN_SACHET,
     ALARMA_COLOCACION,
+    ALARMA_FALLA_EQUIPO,
     ALARMA_BATERIA_CRITICA,
     ALARMA_DESVIACION_FUERTE,
+    ALARMA_GOTEO_SIN_MONITOREO,
     ALARMA_BATERIA_BAJA,
     AVISO_DESVIACION_LEVE,
     AVISO_PROXIMO_A_FINALIZAR,
@@ -79,17 +87,22 @@ typedef struct {
     bool  base_optica_ok;      /*!< true si el nivel de base del fotodiodo está en el rango normal (equipo en la cámara) */
     uint8_t bateria_pct;       /*!< Carga de la batería, 0 a 100 */
     bool  cargador;            /*!< true con el cargador conectado: se anulan las alarmas de batería */
+    bool  falla_equipo;        /*!< true si el autotest falló al retomar una infusión tras un reinicio (alarma alta, no hay enfermera presente) */
+    bool  sin_infusion;        /*!< true si no hay infusión activa y se evalúa el goteo sin monitoreo (pantalla Sin infusión y clave del arranque) */
 } alarmas_entrada_t;
 
 /**
  * @brief Tiempos que se pueden acortar para probar las alarmas sin esperar minutos. Los de la
- * especificación son 120 s, 300 s, 120 s y 120 s.
+ * especificación son 120 s, 300 s, 120 s y 120 s (y 120 s y 45 s para el goteo sin monitoreo). Un campo en 0
+ * deja el valor de la especificación.
  */
 typedef struct {
     uint16_t desv_estabilizacion_s;   /*!< Segundos del Monitoreo en los que no se evalúa el desvío */
     uint16_t desv_leve_persist_s;     /*!< Segundos que el desvío > 10 % tiene que sostenerse para el aviso */
-    uint16_t desv_fuerte_persist_s;   /*!< Segundos que el desvío > 25 % tiene que sostenerse para la alarma */
+    uint16_t desv_fuerte_persist_s;   /*!< Segundos que el desvío > 30 % tiene que sostenerse para la alarma */
     uint16_t rearme_s;                /*!< Segundos hasta que una alarma alta silenciada se re-arma */
+    uint16_t gsm_persist_s;           /*!< Segundos de gotas continuas sin infusión activa para la alarma de goteo sin monitoreo */
+    uint16_t gsm_hueco_s;             /*!< Segundos sin gotas que cortan la racha del goteo sin monitoreo (y la resuelven) */
 } alarmas_tiempos_t;
 
 /**
@@ -111,6 +124,24 @@ bool Alarmas_ResumenValido(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t 
  * empezar el Ajuste de goteo, que es cuando se empieza a contar el volumen.
  */
 void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duracion_min, int64_t ahora_us);
+
+/** @fn void Alarmas_SetGotas(uint32_t gotas)
+ * @brief Carga el contador de gotas al retomar una infusión tras un reinicio (después de Alarmas_Iniciar)
+ */
+void Alarmas_SetGotas(uint32_t gotas);
+
+/** @fn void Alarmas_GotaSinMonitoreo(int64_t ahora_us)
+ * @brief Registra una gota detectada cuando NO hay infusión activa. Si caen gotas de forma continua
+ * durante 2 min (con entrada.sin_infusion) se activa GOTEO_SIN_MONITOREO.
+ */
+void Alarmas_GotaSinMonitoreo(int64_t ahora_us);
+
+/** @fn void Alarmas_CambiarDuracion(uint16_t duracion_min)
+ * @brief Cambia la duración programada (Ajustes > Cambiar datos): recalcula el período objetivo y
+ * T_ocl sin reiniciar el contador de gotas ni los eventos. Los 2 min sin evaluar el desvío vuelven a
+ * contarse cuando se retome el Monitoreo (al confirmar el Ajuste de goteo).
+ */
+void Alarmas_CambiarDuracion(uint16_t duracion_min);
 
 /** @fn void Alarmas_Gota(int64_t ahora_us)
  * @brief Registra una gota detectada. Llamar una vez por cada gota.

@@ -107,6 +107,12 @@ bool OpticalSensor_Init(optical_sensor_cb_t cb) {
     return true;
 }
 
+void OpticalSensor_Stop(void) {
+    if (task_handle != NULL) {
+        TimerStop(TIMER_A);
+    }
+}
+
 float OpticalSensor_BaseMv(int canal) {
     return (canal >= 0 && canal < OPTICAL_SENSOR_CHANNELS) ? baseline_mV[canal] : 0.0f;
 }
