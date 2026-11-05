@@ -5,3 +5,7 @@ CONFIG_ESP_CONSOLE_UART_DEFAULT=n
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 # Mismo tick que pruebabpw34 (donde la deteccion de gotas se probo bien)
 CONFIG_FREERTOS_HZ=1000
+# Tabla de particiones propia: agrega la particion "registro" para el registro de la infusion (partitions.csv)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
