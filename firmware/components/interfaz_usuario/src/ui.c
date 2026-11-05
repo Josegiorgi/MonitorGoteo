@@ -1,6 +1,7 @@
 /*==================[inclusions]=============================================*/
 #include <stdio.h>
 #include <string.h>
+#include "esp_timer.h"
 #include "ui.h"
 #include "ui_pantallas.h"
 #include "i2c_mcu.h"
@@ -13,9 +14,16 @@
 
 #define UI_ALARMA_PARPADEA   0    /*!< 1 hace que la pantalla de alarma alterne entre fondo blanco y negro */
 #define CODIGO_DIGITOS       4
+#define CLAVE_ERRORES_MAX    3        /*!< Errores seguidos de clave que activan el bloqueo */
+#define CLAVE_BLOQUEO_S_DEF  60       /*!< Segundos de bloqueo después de CLAVE_ERRORES_MAX errores */
+#define TECNICO_INACTIVIDAD_S_DEF 300     /*!< Segundos sin actividad en el Modo Técnico para salir solo (con un reinicio) */
+#define TECNICO_ITEMS        4        /*!< Modo Técnico: Diagnóstico, Probar alarma, Borrar registro y Salir */
+#define PRUEBA_ITEMS         9        /*!< Alarmas que se pueden probar (una por patrón del buzzer) */
+#define INACTIVIDAD_S_DEF    60       /*!< Segundos sin tocar nada en la clave y en el menú para volver al Monitoreo */
 #define CONFIG_PARAMETROS    3
 #define MENU_FILAS_VISIBLES  3
-#define MENU_ITEMS           2   /*!< Menú clínico: Configurar y Apagar equipo */
+#define MENU_ITEMS           4   /*!< Ajustes: Cambiar datos, Detener monitoreo, Apagar y Volver */
+#define SIN_INFUSION_ITEMS   2   /*!< Sin infusión (sesión abierta): Nueva infusión y Apagar */
 
 /*==================[internal data definition]===============================*/
 /* El u8g2_t vive en el componente display (la OLED va por i2c_mcu, no por el HAL de u8g2) */
@@ -58,21 +66,39 @@ static uint8_t chequeos_cantidad = 0;
 static uint8_t acceso_digitos[CODIGO_DIGITOS];
 static uint8_t acceso_posicion = 0;
 static bool acceso_error = false;
+static bool acceso_arranque = false;     // true: es la clave del arranque (no se cancela ni vence)
+static uint8_t acceso_errores = 0;       // errores de clave seguidos
+static int64_t bloqueo_hasta_us = 0;     // hasta cuándo está bloqueada la clave (0 = no lo está)
+static int64_t ultima_actividad_us = 0;  // última vez que se tocó el encoder en la clave o el menú
 static uint8_t config_indice = 0;
+static uint8_t resumen_pagina = 0;       // 0: factor de goteo destacado, 1: volumen, duración y caudal objetivo
 static uint8_t menu_cursor = 0;
 static uint8_t menu_primero = 0;
-static bool apagar_si = false;
+static bool apagar_si = false;           // respuesta elegida en las confirmaciones (Detener y Apagar)
+static ui_pantalla_t apagar_origen = UI_PANTALLA_AJUSTES;   // a dónde se vuelve si se contesta "No" a Apagar
+static bool sin_infusion_abierta = false; // true: sesión abierta en "Sin infusión activa" (Nueva infusión / Apagar)
+static bool ajuste_es_cambio = false;     // true si el Ajuste de goteo viene de Cambiar datos (no se reinicia el contador)
+static uint16_t duracion_previa = 0;      // duración antes de editarla desde Ajustes (se restituye si se cancela)
 static ui_pantalla_t acceso_origen = UI_PANTALLA_MONITOREO;   // pantalla a la que se vuelve si se cancela el acceso
-static bool config_desde_menu = false;   // true si Config se abrió desde el Menú técnico (y no en la primera configuración)
+static bool config_desde_menu = false;   // true si Config se abrió desde Ajustes > Cambiar datos (y no en una infusión nueva)
 static bool apagado_pedido = false;
 static bool parpadeo = false;
 static ui_alarma_t ultima_alarma = UI_ALARMA_NINGUNA;
+static ui_pantalla_t alarma_origen = UI_PANTALLA_MONITOREO;   // pantalla a la que se vuelve al silenciar o resolverse la alarma
+static ui_clave_cb_t clave_cb = NULL;
+static uint32_t t_clave_bloqueo_s = CLAVE_BLOQUEO_S_DEF;           // se pueden acortar para probar (UI_SetTiempos)
+static uint32_t t_inactividad_s = INACTIVIDAD_S_DEF;
+static uint32_t t_tecnico_inactividad_s = TECNICO_INACTIVIDAD_S_DEF;
+static uint8_t tecnico_cursor = 0, tecnico_primero = 0;   // Modo Técnico: menú principal
+static uint8_t prueba_cursor = 0, prueba_primero = 0;     // Modo Técnico: lista de alarmas para probar
+static bool salir_pedido = false;                          // se eligió Salir del Modo Técnico o venció la inactividad
 
 /*==================[internal functions definition]==========================*/
 static void PantallaColocacion(const ui_datos_t *d) {
     char texto[32];
 
     u8g2_ClearBuffer(&u8g2);
+    u8g2_SetDrawColor(&u8g2, 1);   // no depender del color que haya dejado la pantalla anterior (la de alarma dibuja en 0)
     u8g2_SetFontMode(&u8g2, 1);
     u8g2_SetBitmapMode(&u8g2, 1);
 
@@ -102,7 +128,7 @@ static void PantallaColocacion(const ui_datos_t *d) {
     u8g2_SendBuffer(&u8g2);
 }
 
-/* Texto del aviso que queda abajo en el Monitoreo cuando hay una alarma silenciada o pausa */
+/* Texto del aviso que queda abajo en el Monitoreo cuando hay una alarma silenciada, un aviso de batería o pausa */
 static const char *TextoAviso(const ui_datos_t *d) {
     if (d->alarma_silenciada) {
         switch (d->alarma) {
@@ -110,10 +136,32 @@ static const char *TextoAviso(const ui_datos_t *d) {
         case UI_ALARMA_DESVIACION_FLUJO: return "! DESVIACION FLUJO";
         case UI_ALARMA_FIN_SACHET:       return "! FIN SACHET";
         case UI_ALARMA_BATERIA_BAJA:     return "! BATERIA BAJA";
+        case UI_ALARMA_COLOCACION:       return "! COLOCACION";
+        case UI_ALARMA_FALLA_EQUIPO:     return "! FALLA EQUIPO";
+        case UI_ALARMA_GOTEO_SIN_MONITOREO: return "! GOTEO SIN MONIT.";
         default: break;
         }
     }
+    if (d->aviso_bateria) {
+        return "! AVISO BATERIA 20%";   // la batería llegó al 20 %: sin sonido, solo este aviso
+    }
+    if (d->monitoreo_reanudado) {
+        return "Monitoreo reanudado";   // se retomó tras un reinicio
+    }
     return d->en_pausa ? "|| PAUSA" : NULL;
+}
+
+/* gotas/min objetivo con decimales (volumen x gtt/mL / minutos): 500 mL en 8 h con 20 gtt/mL son 20,8 */
+static float GotasMinObjetivoF(const ui_datos_t *d) {
+    return (d->duracion_min == 0) ? 0.0f : (float)d->volumen_total_ml * d->factor_goteo / d->duracion_min;
+}
+
+/* Por qué no se puede iniciar desde el Resumen: 0 = se puede, 1 = menos de 2 gotas/min, 2 = no queda lugar en la memoria del registro */
+static uint8_t MotivoResumen(const ui_datos_t *d) {
+    if (GotasMinObjetivoF(d) < 2.0f) {
+        return 1;
+    }
+    return (d->duracion_min > d->registro_minutos_libres) ? 2 : 0;
 }
 
 static void PantallaMonitoreo(const ui_datos_t *d) {
@@ -121,6 +169,7 @@ static void PantallaMonitoreo(const ui_datos_t *d) {
     const char *aviso = TextoAviso(d);
 
     u8g2_ClearBuffer(&u8g2);
+    u8g2_SetDrawColor(&u8g2, 1);   // no depender del color que haya dejado la pantalla anterior (la de alarma dibuja en 0)
     u8g2_SetFontMode(&u8g2, 1);
     u8g2_SetBitmapMode(&u8g2, 1);
 
@@ -144,8 +193,8 @@ static void PantallaMonitoreo(const ui_datos_t *d) {
     u8g2_DrawStr(&u8g2, 54, 44, "mL/h");
 
     u8g2_SetFont(&u8g2, u8g2_font_6x12_tr);
-    snprintf(texto, sizeof(texto), "%uml", d->volumen_ml);
-    u8g2_DrawStr(&u8g2, 92, 30, texto);
+    snprintf(texto, sizeof(texto), d->volumen_incierto ? ">%uml" : "%uml", d->volumen_ml);   // ">" = como mínimo (se reinició sin conocer el tiempo apagado)
+    u8g2_DrawStr(&u8g2, d->volumen_incierto ? 86 : 92, 30, texto);
     snprintf(texto, sizeof(texto), "%02lu:%02lu", (unsigned long)(d->tiempo_s / 3600),
              (unsigned long)((d->tiempo_s / 60) % 60));
     u8g2_DrawStr(&u8g2, 91, 46, texto);
@@ -159,7 +208,7 @@ static void PantallaMonitoreo(const ui_datos_t *d) {
         u8g2_SetDrawColor(&u8g2, 1);
     } else {
         u8g2_DrawLine(&u8g2, 1, 50, 127, 50);
-        u8g2_DrawStr(&u8g2, (SSD1315_ANCHO - u8g2_GetStrWidth(&u8g2, "Doble click: menu")) / 2, 61, "Doble click: menu");
+        u8g2_DrawStr(&u8g2, (SSD1315_ANCHO - u8g2_GetStrWidth(&u8g2, "Mantener 3s: ajustes")) / 2, 61, "Mantener 3s: ajustes");
     }
 
     u8g2_SendBuffer(&u8g2);
@@ -167,8 +216,8 @@ static void PantallaMonitoreo(const ui_datos_t *d) {
 
 static void PantallaAlarma(const ui_datos_t *d) {
     char detalle[32];
+    char derecha[12] = "";
     const char *nivel = "ALARMA ALTA", *titulo = "";
-    int pct;
 
     switch (d->alarma) {
     case UI_ALARMA_OCLUSION:
@@ -177,13 +226,23 @@ static void PantallaAlarma(const ui_datos_t *d) {
         break;
     case UI_ALARMA_DESVIACION_FLUJO:
         nivel = "ALARMA MEDIA";
-        titulo = (d->flujo_mlh > d->flujo_objetivo_mlh) ? "FLUJO ALTO" : "FLUJO BAJO";
-        pct = d->flujo_objetivo_mlh ? ((int)d->flujo_mlh - (int)d->flujo_objetivo_mlh) * 100 / d->flujo_objetivo_mlh : 0;
-        snprintf(detalle, sizeof(detalle), "%+d%% (obj %u mL/h)", pct, d->flujo_objetivo_mlh);
+        titulo = (d->desvio_pct > 0) ? "FLUJO ALTO" : "FLUJO BAJO";
+        // Porcentaje de desvío arriba a la derecha y, abajo, las gotas por minuto a las que hay que volver
+        snprintf(derecha, sizeof(derecha), "%+d%%", d->desvio_pct);
+        snprintf(detalle, sizeof(detalle), "Obj: %.1f gtt/min", (double)GotasMinObjetivoF(d));
         break;
     case UI_ALARMA_FIN_SACHET:
         titulo = "FIN SACHET";
         snprintf(detalle, sizeof(detalle), "%u mL completados", d->volumen_total_ml);
+        break;
+    case UI_ALARMA_FALLA_EQUIPO:
+        titulo = "FALLA EQUIPO";
+        snprintf(detalle, sizeof(detalle), "Llamar a enfermeria");
+        break;
+    case UI_ALARMA_GOTEO_SIN_MONITOREO:
+        nivel = "ALARMA MEDIA";
+        titulo = "SIN MONITOREO";
+        snprintf(detalle, sizeof(detalle), "Hay goteo: llamar a enf.");
         break;
     case UI_ALARMA_BATERIA_BAJA:
         nivel = "ALARMA MEDIA";
@@ -195,7 +254,7 @@ static void PantallaAlarma(const ui_datos_t *d) {
         break;
     }
     // Las alarmas van con fondo blanco; con UI_ALARMA_PARPADEA alternan con fondo negro
-    Pant_Alarma(&u8g2, UI_ALARMA_PARPADEA ? parpadeo : true, nivel, titulo, detalle);
+    Pant_Alarma(&u8g2, UI_ALARMA_PARPADEA ? parpadeo : true, nivel, derecha, titulo, detalle);
 }
 
 static bool TodosOk(void) {
@@ -257,6 +316,15 @@ static void CambiarParametro(ui_datos_t *d, uint8_t i, int8_t sentido) {
     ActualizarCaudalObjetivo(d);
 }
 
+/* Segundos que faltan para que termine el bloqueo de la clave (0 si no está bloqueada) */
+static uint16_t BloqueoRestanteS(void) {
+    int64_t resta_us = bloqueo_hasta_us - esp_timer_get_time();
+    if (bloqueo_hasta_us == 0 || resta_us <= 0) {
+        return 0;
+    }
+    return (uint16_t)((resta_us + 999999) / 1000000);
+}
+
 static void IrAcceso(void) {
     if (pantalla != UI_PANTALLA_ACCESO) {
         acceso_origen = pantalla;   // desde el Monitoreo o desde Fin de infusión
@@ -264,19 +332,71 @@ static void IrAcceso(void) {
     memset(acceso_digitos, 0, sizeof(acceso_digitos));
     acceso_posicion = 0;
     acceso_error = false;
+    ultima_actividad_us = esp_timer_get_time();
     pantalla = UI_PANTALLA_ACCESO;
 }
 
-static void IrMenuTecnico(void) {
-    menu_cursor = 0;
-    menu_primero = 0;
-    pantalla = UI_PANTALLA_MENU_TECNICO;
+/* true si lo ingresado coincide con el código (la clave clínica o el código técnico) */
+static bool CodigoCoincide(const char *codigo) {
+    bool coincide = true;
+    for (uint8_t i = 0; i < CODIGO_DIGITOS; i++) {
+        coincide = coincide && (acceso_digitos[i] == codigo[i] - '0');
+    }
+    return coincide;
 }
 
+static bool EnModoTecnico(void) {
+    return pantalla == UI_PANTALLA_TECNICO || pantalla == UI_PANTALLA_DIAGNOSTICO ||
+           pantalla == UI_PANTALLA_PROBAR_ALARMA || pantalla == UI_PANTALLA_BORRAR_REGISTRO;
+}
+
+static void IrTecnico(void) {
+    ultima_actividad_us = esp_timer_get_time();
+    tecnico_cursor = 0;
+    tecnico_primero = 0;
+    pantalla = UI_PANTALLA_TECNICO;
+}
+
+/* Mueve el cursor de una lista de "total" ítems con 3 filas visibles y ajusta cuál es la primera visible */
+static void MoverCursor(uint8_t *cursor, uint8_t *primero, uint8_t total, int8_t sentido) {
+    *cursor = (*cursor + total + sentido) % total;
+    if (*cursor < *primero) {
+        *primero = *cursor;
+    } else if (*cursor >= *primero + MENU_FILAS_VISIBLES) {
+        *primero = *cursor - MENU_FILAS_VISIBLES + 1;
+    }
+}
+
+static void IrAjustes(void) {
+    ultima_actividad_us = esp_timer_get_time();
+    menu_cursor = 0;
+    menu_primero = 0;
+    pantalla = UI_PANTALLA_AJUSTES;
+}
+
+/* Sin infusión activa con la sesión abierta (después de poner la clave o de detener el monitoreo) */
+static void AbrirSinInfusion(void) {
+    ultima_actividad_us = esp_timer_get_time();
+    sin_infusion_abierta = true;
+    menu_cursor = 0;
+    menu_primero = 0;
+    pantalla = UI_PANTALLA_FIN;
+}
+
+/* Desde Ajustes solo se edita la duración (último parámetro): el factor de goteo y el volumen no se
+ * cambian a mitad de la infusión porque invalidarían el volumen ya contado */
 static void IrConfig(bool desde_menu) {
     config_desde_menu = desde_menu;
-    config_indice = 0;
+    config_indice = desde_menu ? CONFIG_PARAMETROS - 1 : 0;
     pantalla = UI_PANTALLA_CONFIG;
+}
+
+/* Termina la infusión (Detener monitoreo o Apagar con una infusión activa) */
+static void FinalizarInfusion(ui_datos_t *d) {
+    d->infusion_configurada = false;
+    d->alarma = UI_ALARMA_NINGUNA;
+    d->alarma_silenciada = false;
+    d->en_pausa = false;
 }
 
 /* gotas/min para pasar el volumen en el tiempo indicado: volumen x gtt/mL / minutos, redondeado
@@ -289,11 +409,12 @@ static uint16_t GotasMinObjetivo(const ui_datos_t *d) {
 }
 
 static void DibujarPantalla(const ui_datos_t *d) {
-    // El doble click se usa solo donde hace falta: así los clicks del resto no esperan
-    Encoder_SetDobleClick(pantalla == UI_PANTALLA_MONITOREO || pantalla == UI_PANTALLA_ALARMA ||
-                          pantalla == UI_PANTALLA_FIN);
     char valor[12];
-    const char *items[MENU_ITEMS] = {"Configurar", "Apagar equipo"};
+    const char *items[MENU_ITEMS] = {"Cambiar datos", "Detener monitoreo", "Apagar", "Volver"};
+    const char *items_sin_infusion[SIN_INFUSION_ITEMS] = {"Nueva infusion", "Apagar"};
+    const char *items_tecnico[TECNICO_ITEMS] = {"Diagnostico", "Probar alarma", "Borrar registro", "Salir"};
+    const char *items_prueba[PRUEBA_ITEMS] = {"Volumen completo", "Flujo detenido", "Fin de sachet", "Colocacion", "Falla equipo",
+                                              "Bateria critica", "Desvio fuerte", "Goteo s/monitoreo", "Bateria baja"};
 
     switch (pantalla) {
     case UI_PANTALLA_AUTOTEST:
@@ -303,17 +424,17 @@ static void DibujarPantalla(const ui_datos_t *d) {
         PantallaColocacion(d);
         break;
     case UI_PANTALLA_ACCESO:
-        Pant_Acceso(&u8g2, acceso_digitos, acceso_posicion, acceso_error);
+        Pant_Acceso(&u8g2, acceso_digitos, acceso_posicion, acceso_error, BloqueoRestanteS());
         break;
     case UI_PANTALLA_CONFIG:
         ValorTexto((ui_datos_t *)d, config_indice, valor, sizeof(valor));
         Pant_Config(&u8g2, config_indice + 1, CONFIG_PARAMETROS, parametros[config_indice].nombre, valor, parametros[config_indice].unidad);
         break;
     case UI_PANTALLA_RESUMEN:
-        Pant_Resumen(&u8g2, d);
+        Pant_Resumen(&u8g2, d, resumen_pagina, MotivoResumen(d));
         break;
     case UI_PANTALLA_AJUSTE_GOTEO:
-        Pant_AjusteGoteo(&u8g2, GotasMinObjetivo(d), d->volumen_total_ml, d->duracion_min, d->factor_goteo);
+        Pant_AjusteGoteo(&u8g2, GotasMinObjetivo(d), d->volumen_total_ml, d->duracion_min, d->factor_goteo, d->recordatorio_ajuste);
         break;
     case UI_PANTALLA_MONITOREO:
         PantallaMonitoreo(d);
@@ -321,14 +442,36 @@ static void DibujarPantalla(const ui_datos_t *d) {
     case UI_PANTALLA_ALARMA:
         PantallaAlarma(d);
         break;
-    case UI_PANTALLA_MENU_TECNICO:
-        Pant_Menu(&u8g2, "Menu tecnico", items, MENU_ITEMS, menu_cursor, menu_primero, "Pulsar: elegir");
+    case UI_PANTALLA_AJUSTES:
+        Pant_Menu(&u8g2, "Ajustes", items, MENU_ITEMS, menu_cursor, menu_primero, "Pulsar: elegir");
+        break;
+    case UI_PANTALLA_DETENER:
+        Pant_Confirmar(&u8g2, "Detener monitoreo", "Finalizar infusion?", "Verificar clamp cerrado", apagar_si);
         break;
     case UI_PANTALLA_FIN:
-        Pant_Fin(&u8g2, d->bateria_pct, d->volumen_ml, d->tiempo_s);
+        if (sin_infusion_abierta) {
+            Pant_Menu(&u8g2, "Sin infusion activa", items_sin_infusion, SIN_INFUSION_ITEMS, menu_cursor, 0, "Pulsar: elegir");
+        } else {
+            Pant_SinInfusion(&u8g2, d->bateria_pct);
+        }
+        break;
+    case UI_PANTALLA_TECNICO:
+        Pant_Menu(&u8g2, "Modo tecnico", items_tecnico, TECNICO_ITEMS, tecnico_cursor, tecnico_primero, "Pulsar: elegir");
+        break;
+    case UI_PANTALLA_DIAGNOSTICO:
+        Pant_Diagnostico(&u8g2, d);
+        break;
+    case UI_PANTALLA_PROBAR_ALARMA:
+        Pant_Menu(&u8g2, "Probar alarma", items_prueba, PRUEBA_ITEMS, prueba_cursor, prueba_primero,
+                  d->probar_alarma ? "Pulsar: parar" : "Pulsar: probar");
+        break;
+    case UI_PANTALLA_BORRAR_REGISTRO:
+        Pant_Confirmar(&u8g2, "Borrar registro", d->registro_descargado ? "Se borra todo el registro" : "El registro no fue descargado",
+                       d->registro_descargado ? "Seguro?" : "Borrar igual?", apagar_si);
         break;
     case UI_PANTALLA_APAGAR:
-        Pant_Apagar(&u8g2, apagar_si);
+        Pant_Confirmar(&u8g2, "Apagar equipo?", d->infusion_configurada ? "Se finalizara la infusion" : "Se apagara el equipo",
+                       "Verificar clamp cerrado", apagar_si);
         break;
     }
 }
@@ -382,8 +525,37 @@ void UI_Ir(ui_pantalla_t destino, ui_datos_t *d) {
     DibujarPantalla(d);
 }
 
+/* Cancela la edición de la duración (Ajustes > Cambiar datos): vuelve al valor que tenía */
+static void CancelarEdicion(ui_datos_t *d) {
+    d->duracion_min = duracion_previa;
+    ActualizarCaudalObjetivo(d);
+}
+
+bool UI_SalirPedido(void) {
+    return salir_pedido;
+}
+
+void UI_PantallaMensaje(const char *texto) {
+    Pant_Mensaje(&u8g2, texto);
+}
+
+void UI_SetTiempos(uint16_t inactividad_s, uint16_t tecnico_inactividad_s, uint16_t clave_bloqueo_s) {
+    t_inactividad_s = (inactividad_s > 0) ? inactividad_s : INACTIVIDAD_S_DEF;
+    t_tecnico_inactividad_s = (tecnico_inactividad_s > 0) ? tecnico_inactividad_s : TECNICO_INACTIVIDAD_S_DEF;
+    t_clave_bloqueo_s = (clave_bloqueo_s > 0) ? clave_bloqueo_s : CLAVE_BLOQUEO_S_DEF;
+}
+
+void UI_SetCallbackClave(ui_clave_cb_t cb) {
+    clave_cb = cb;
+}
+
+bool UI_EditandoDatos(void) {
+    return config_desde_menu && (pantalla == UI_PANTALLA_CONFIG || pantalla == UI_PANTALLA_RESUMEN);
+}
+
 void UI_Actualizar(ui_datos_t *d) {
     parpadeo = !parpadeo;
+    bool editaba = UI_EditandoDatos();
 
     // Una alarma distinta de la anterior vuelve a sonar aunque se hubiera silenciado la anterior
     if (d->alarma != ultima_alarma) {
@@ -393,37 +565,87 @@ void UI_Actualizar(ui_datos_t *d) {
 
     if (d->alarma == UI_ALARMA_NINGUNA) {
         d->alarma_silenciada = false;
+        // Durante la infusión, la pantalla de Colocación solo aparece por la alarma: al resolverse sola
+        // (el ángulo volvió al rango) se vuelve al Monitoreo sin pedir un click
         if (pantalla == UI_PANTALLA_ALARMA) {
+            pantalla = alarma_origen;   // Monitoreo, o la pantalla de Sin infusión / clave de la que venía
+        } else if (pantalla == UI_PANTALLA_COLOCACION && d->infusion_configurada) {
             pantalla = UI_PANTALLA_MONITOREO;
         }
+    } else if (!d->infusion_configurada) {
+        // Sin infusión activa: las alarmas (goteo sin monitoreo, batería) se ven en la pantalla Sin infusión y en la clave del arranque
+        if (!d->alarma_silenciada && (pantalla == UI_PANTALLA_FIN || pantalla == UI_PANTALLA_ACCESO)) {
+            alarma_origen = pantalla;
+            pantalla = UI_PANTALLA_ALARMA;
+        }
     } else if (d->infusion_configurada) {
+        // Una alarma nueva interrumpe también la clave y el menú: para volver hay que ingresar la clave otra vez
         bool en_infusion = (pantalla == UI_PANTALLA_AJUSTE_GOTEO) || (pantalla == UI_PANTALLA_MONITOREO) ||
-                           (pantalla == UI_PANTALLA_MENU_TECNICO) || (pantalla == UI_PANTALLA_ALARMA) ||
-                           (pantalla == UI_PANTALLA_APAGAR) || (pantalla == UI_PANTALLA_COLOCACION);
+                           (pantalla == UI_PANTALLA_ACCESO) || (pantalla == UI_PANTALLA_AJUSTES) || (pantalla == UI_PANTALLA_ALARMA) ||
+                           (pantalla == UI_PANTALLA_DETENER) || (pantalla == UI_PANTALLA_APAGAR) || (pantalla == UI_PANTALLA_COLOCACION) ||
+                           UI_EditandoDatos();
         if (d->alarma == UI_ALARMA_COLOCACION) {
-            if (en_infusion) {
+            if (en_infusion && !d->alarma_silenciada) {
                 pantalla = UI_PANTALLA_COLOCACION;   // un choque movió el equipo: se vuelve a verificar
+            } else if (pantalla == UI_PANTALLA_COLOCACION) {
+                pantalla = UI_PANTALLA_MONITOREO;    // silenciada: queda el aviso abajo en el Monitoreo
             }
         } else if (!d->alarma_silenciada && en_infusion) {
+            if (pantalla != UI_PANTALLA_ALARMA) {
+                alarma_origen = UI_PANTALLA_MONITOREO;
+            }
             pantalla = UI_PANTALLA_ALARMA;
         }
     }
+    // La clave (salvo la del arranque) y el menú vuelven solos adonde estaban si nadie los usa
+    bool inactivo = (esp_timer_get_time() - ultima_actividad_us) > (int64_t)t_inactividad_s * 1000000;
+    if (inactivo && !acceso_arranque && (pantalla == UI_PANTALLA_ACCESO || pantalla == UI_PANTALLA_AJUSTES ||
+                                         pantalla == UI_PANTALLA_DETENER || pantalla == UI_PANTALLA_APAGAR)) {
+        pantalla = acceso_origen;
+        if (pantalla == UI_PANTALLA_FIN) {
+            sin_infusion_abierta = false;   // sin infusión: se vuelve a la pantalla bloqueada
+        }
+    }
+    if (inactivo && pantalla == UI_PANTALLA_FIN && sin_infusion_abierta) {
+        sin_infusion_abierta = false;       // 60 s sin actividad: queda bloqueada en "Sin infusión activa"
+    }
+    if (EnModoTecnico() && (esp_timer_get_time() - ultima_actividad_us) > (int64_t)t_tecnico_inactividad_s * 1000000) {
+        salir_pedido = true;                // 5 min sin actividad: el main reinicia el equipo
+    }
+    if (editaba && pantalla != UI_PANTALLA_CONFIG && pantalla != UI_PANTALLA_RESUMEN && pantalla != UI_PANTALLA_AJUSTE_GOTEO) {
+        CancelarEdicion(d);                 // una alarma interrumpió el cambio de datos: no se aplica
+    }
+    DibujarPantalla(d);
+}
+
+void UI_IniciarClave(ui_datos_t *d) {
+    acceso_arranque = true;
+    acceso_errores = 0;
+    IrAcceso();
     DibujarPantalla(d);
 }
 
 void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
     int8_t sentido = (ev == ENC_GIRO_HORARIO) ? 1 : (ev == ENC_GIRO_ANTIHORARIO) ? -1 : 0;
     bool pulsar = (ev == ENC_CLICK), mantener = (ev == ENC_CLICK_LARGO), doble = (ev == ENC_DOBLE_CLICK);
+    bool muy_largo = (ev == ENC_CLICK_MUY_LARGO);   // 3 s apretado: abre la clave
+
+    if (pantalla == UI_PANTALLA_ACCESO || pantalla == UI_PANTALLA_AJUSTES || pantalla == UI_PANTALLA_DETENER ||
+        pantalla == UI_PANTALLA_APAGAR || (pantalla == UI_PANTALLA_FIN && sin_infusion_abierta) || EnModoTecnico()) {
+        ultima_actividad_us = esp_timer_get_time();
+    }
 
     switch (pantalla) {
     case UI_PANTALLA_AUTOTEST:
-        if (pulsar && TodosOk()) {
-            pantalla = UI_PANTALLA_COLOCACION;
-        }
-        break;
+        break;   // solo se muestra si un chequeo falla: no deja continuar
 
     case UI_PANTALLA_COLOCACION:
-        if (pulsar && d->colocacion_ok) {
+        if (pulsar && d->infusion_configurada && d->alarma == UI_ALARMA_COLOCACION) {
+            // Durante la infusión el click solo silencia (como en las demás alarmas): la alarma se resuelve sola
+            // cuando el ángulo vuelve al rango y se sostiene 5 s
+            d->alarma_silenciada = true;
+            pantalla = UI_PANTALLA_MONITOREO;
+        } else if (pulsar && d->colocacion_ok) {
             if (d->alarma == UI_ALARMA_COLOCACION) {
                 d->alarma = UI_ALARMA_NINGUNA;   // el usuario confirmó que volvió a colocarlo bien
             }
@@ -436,27 +658,52 @@ void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
         break;
 
     case UI_PANTALLA_ACCESO:
+        if (BloqueoRestanteS() > 0) {
+            break;   // bloqueada por errores: se ignora todo hasta que termine
+        }
         if (sentido) {
             acceso_digitos[acceso_posicion] = (acceso_digitos[acceso_posicion] + 10 + sentido) % 10;
             acceso_error = false;
         } else if (pulsar) {
             if (++acceso_posicion == CODIGO_DIGITOS) {
-                bool correcto = true;
-                for (uint8_t i = 0; i < CODIGO_DIGITOS; i++) {
-                    correcto = correcto && (acceso_digitos[i] == UI_CODIGO_TECNICO[i] - '0');
-                }
-                if (correcto) {
-                    IrMenuTecnico();
+                if (acceso_arranque && CodigoCoincide(UI_CODIGO_TECNICO)) {
+                    // El Modo Técnico solo existe en el arranque normal (sin infusión activa)
+                    acceso_errores = 0;
+                    acceso_arranque = false;
+                    if (clave_cb != NULL) {
+                        clave_cb(UI_CLAVE_TECNICO);
+                    }
+                    IrTecnico();
+                } else if (CodigoCoincide(UI_CLAVE_CLINICA)) {
+                    acceso_errores = 0;
+                    if (clave_cb != NULL) {
+                        clave_cb(UI_CLAVE_OK);
+                    }
+                    if (acceso_arranque) {
+                        acceso_arranque = false;
+                        pantalla = UI_PANTALLA_COLOCACION;
+                    } else if (acceso_origen == UI_PANTALLA_FIN) {
+                        AbrirSinInfusion();   // sin infusión: la clave abre la sesión (Nueva infusión o Apagar)
+                    } else {
+                        IrAjustes();
+                    }
                 } else {
                     IrAcceso();
                     acceso_error = true;
+                    if (clave_cb != NULL) {
+                        clave_cb(UI_CLAVE_ERROR);
+                    }
+                    if (++acceso_errores >= CLAVE_ERRORES_MAX) {
+                        acceso_errores = 0;
+                        bloqueo_hasta_us = esp_timer_get_time() + (int64_t)t_clave_bloqueo_s * 1000000;
+                    }
                 }
             }
         } else if (mantener) {
             if (acceso_posicion > 0) {
                 acceso_posicion--;   // borra el último dígito
-            } else {
-                pantalla = acceso_origen;   // cancela el acceso
+            } else if (!acceso_arranque) {
+                pantalla = acceso_origen;   // cancela el acceso (la clave del arranque no se cancela)
             }
         }
         break;
@@ -466,58 +713,71 @@ void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
             CambiarParametro(d, config_indice, sentido);
         } else if (pulsar) {
             if (++config_indice == CONFIG_PARAMETROS) {
+                resumen_pagina = 0;
                 pantalla = UI_PANTALLA_RESUMEN;
             }
         } else if (mantener) {
-            if (config_indice > 0) {
+            if (config_desde_menu) {
+                CancelarEdicion(d);   // cancela el cambio de datos
+                IrAjustes();
+            } else if (config_indice > 0) {
                 config_indice--;
-            } else if (config_desde_menu) {
-                IrMenuTecnico();
             }
         }
         break;
 
     case UI_PANTALLA_RESUMEN:
-        if (pulsar) {
+        if (sentido) {
+            resumen_pagina = !resumen_pagina;   // el giro alterna entre las dos páginas
+        } else if (pulsar && resumen_pagina == 0) {
+            resumen_pagina = 1;                 // primero se ve el factor de goteo, después se puede iniciar
+        } else if (pulsar) {
+            if (MotivoResumen(d) != 0) {
+                break;   // menos de 2 gotas/min o memoria llena: no se puede iniciar (hay que cambiar la configuración o llamar a soporte)
+            }
+            ajuste_es_cambio = config_desde_menu && d->infusion_configurada;   // Cambiar datos: sigue la misma infusión
             ActualizarCaudalObjetivo(d);
             d->infusion_configurada = true;
             d->en_pausa = false;
             d->alarma_silenciada = false;
             pantalla = UI_PANTALLA_AJUSTE_GOTEO;
         } else if (mantener) {
-            IrConfig(config_desde_menu);
+            if (resumen_pagina == 1) {
+                resumen_pagina = 0;
+            } else {
+                IrConfig(config_desde_menu);
+            }
         }
         break;
 
     case UI_PANTALLA_AJUSTE_GOTEO:
         if (pulsar) {
-            // Empieza el uso: el tiempo y el volumen infundido arrancan de cero recién acá
-            d->tiempo_s = 0;
-            d->volumen_ml = 0;
+            if (!ajuste_es_cambio) {
+                // Empieza el uso: el tiempo y el volumen infundido arrancan de cero recién acá
+                d->tiempo_s = 0;
+                d->volumen_ml = 0;
+            }
+            config_desde_menu = false;
+            ajuste_es_cambio = false;
             pantalla = UI_PANTALLA_MONITOREO;
         }
         break;
 
     case UI_PANTALLA_MONITOREO:
-        if (doble) {
-            IrAcceso();   // ajustes: solo con el código técnico
+        if (muy_largo) {
+            IrAcceso();   // ajustes: solo con la clave. Un click o un giro sin alarma no hacen nada
         }
         break;
 
     case UI_PANTALLA_ALARMA:
         if (pulsar || doble) {   // el usuario solo puede silenciar con el botón (un doble click apurado también vale)
-            if (d->alarma == UI_ALARMA_FIN_SACHET) {
-                d->infusion_configurada = false;   // terminó la infusión
-                d->alarma = UI_ALARMA_NINGUNA;
-                pantalla = UI_PANTALLA_FIN;
-            } else {
-                d->alarma_silenciada = true;
-                pantalla = UI_PANTALLA_MONITOREO;
-            }
+            // También en fin de sachet: solo silencia. La infusión la finaliza la enfermera desde Ajustes > Detener monitoreo
+            d->alarma_silenciada = true;
+            pantalla = alarma_origen;
         }
         break;
 
-    case UI_PANTALLA_MENU_TECNICO:
+    case UI_PANTALLA_AJUSTES:
         if (sentido) {
             menu_cursor = (menu_cursor + MENU_ITEMS + sentido) % MENU_ITEMS;
             if (menu_cursor < menu_primero) {
@@ -527,33 +787,120 @@ void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
             }
         } else if (pulsar) {
             if (menu_cursor == 0) {
+                duracion_previa = d->duracion_min;   // por si se cancela
                 IrConfig(true);
-            } else {
+            } else if (menu_cursor == 1) {
                 apagar_si = false;
+                pantalla = UI_PANTALLA_DETENER;
+            } else if (menu_cursor == 2) {
+                apagar_si = false;
+                apagar_origen = UI_PANTALLA_AJUSTES;
                 pantalla = UI_PANTALLA_APAGAR;
+            } else {
+                pantalla = acceso_origen;   // Volver
             }
         } else if (mantener) {
-            pantalla = acceso_origen;   // vuelve al Monitoreo o a Fin de infusión
+            pantalla = acceso_origen;   // vuelve al Monitoreo
+        }
+        break;
+
+    case UI_PANTALLA_DETENER:
+        if (sentido) {
+            apagar_si = !apagar_si;
+        } else if (pulsar) {
+            if (apagar_si) {
+                FinalizarInfusion(d);   // el main lo ve y deja de medir; queda "Sin infusión activa" con la sesión abierta
+                AbrirSinInfusion();
+            } else {
+                IrAjustes();
+            }
+        } else if (mantener) {
+            IrAjustes();
         }
         break;
 
     case UI_PANTALLA_FIN:
-        if (doble) {
-            IrAcceso();
+        if (!sin_infusion_abierta) {
+            if (muy_largo) {
+                IrAcceso();   // bloqueada: para operar hace falta la clave
+            }
+        } else if (sentido) {
+            menu_cursor = (menu_cursor + SIN_INFUSION_ITEMS + sentido) % SIN_INFUSION_ITEMS;
+        } else if (pulsar) {
+            if (menu_cursor == 0) {
+                sin_infusion_abierta = false;
+                pantalla = UI_PANTALLA_COLOCACION;   // infusión nueva: Colocación, Config, Resumen...
+            } else {
+                apagar_si = false;
+                apagar_origen = UI_PANTALLA_FIN;
+                pantalla = UI_PANTALLA_APAGAR;
+            }
         }
         break;
 
     case UI_PANTALLA_APAGAR:
         if (sentido) {
             apagar_si = !apagar_si;
-        } else if (pulsar) {
-            if (apagar_si) {
+        } else if (pulsar || mantener) {
+            if (pulsar && apagar_si) {
+                if (d->infusion_configurada) {
+                    FinalizarInfusion(d);
+                }
                 apagado_pedido = true;
+            } else if (apagar_origen == UI_PANTALLA_FIN) {
+                pantalla = UI_PANTALLA_FIN;
             } else {
-                IrMenuTecnico();
+                IrAjustes();
             }
+        }
+        break;
+
+    case UI_PANTALLA_TECNICO:
+        if (sentido) {
+            MoverCursor(&tecnico_cursor, &tecnico_primero, TECNICO_ITEMS, sentido);
+        } else if (pulsar) {
+            if (tecnico_cursor == 0) {
+                pantalla = UI_PANTALLA_DIAGNOSTICO;
+            } else if (tecnico_cursor == 1) {
+                prueba_cursor = 0;
+                prueba_primero = 0;
+                d->probar_alarma = 0;
+                pantalla = UI_PANTALLA_PROBAR_ALARMA;
+            } else if (tecnico_cursor == 2) {
+                apagar_si = false;
+                pantalla = UI_PANTALLA_BORRAR_REGISTRO;
+            } else {
+                salir_pedido = true;   // Salir: el main reinicia el equipo (logo, autotest y clave)
+            }
+        }
+        break;
+
+    case UI_PANTALLA_DIAGNOSTICO:
+        if (pulsar || mantener) {
+            pantalla = UI_PANTALLA_TECNICO;
+        }
+        break;
+
+    case UI_PANTALLA_PROBAR_ALARMA:
+        if (sentido) {
+            d->probar_alarma = 0;   // al cambiar de alarma deja de sonar la anterior
+            MoverCursor(&prueba_cursor, &prueba_primero, PRUEBA_ITEMS, sentido);
+        } else if (pulsar) {
+            d->probar_alarma = (d->probar_alarma == prueba_cursor + 1) ? 0 : prueba_cursor + 1;
         } else if (mantener) {
-            IrMenuTecnico();
+            d->probar_alarma = 0;
+            pantalla = UI_PANTALLA_TECNICO;
+        }
+        break;
+
+    case UI_PANTALLA_BORRAR_REGISTRO:
+        if (sentido) {
+            apagar_si = !apagar_si;
+        } else if (pulsar) {
+            d->borrar_registro = apagar_si;   // el main borra el registro
+            pantalla = UI_PANTALLA_TECNICO;
+        } else if (mantener) {
+            pantalla = UI_PANTALLA_TECNICO;
         }
         break;
     }

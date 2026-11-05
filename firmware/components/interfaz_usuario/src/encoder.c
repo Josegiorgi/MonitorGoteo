@@ -3,6 +3,8 @@
 #include "gpio_mcu.h"
 #include "freertos/queue.h"
 #include "esp_timer.h"
+#include "esp_sleep.h"
+#include "driver/gpio.h"
 
 /*==================[macros and definitions]=================================*/
 #define PIN_CLK        GPIO_9
@@ -24,6 +26,7 @@ static const int8_t tabla[16] = {0, -1, 1, 0,
                                 -1, 0, 0, 1,
                                  0, 1, -1, 0};
 
+static esp_timer_handle_t timer_muestreo = NULL;
 static uint8_t estado_ant = 3;
 static int8_t acumulado = 0;
 
@@ -31,6 +34,7 @@ static bool sw_estable = false;     /* true: apretado (el pin es activo en bajo)
 static uint16_t sw_cuenta = 0;      /* ms que lleva distinto de sw_estable */
 static uint16_t sw_apretado_ms = 0; /* ms que lleva apretado */
 static bool sw_largo_enviado = false;
+static bool sw_muy_largo_enviado = false;
 static volatile bool doble_habilitado = false;
 static uint16_t click_pendiente_ms = 0;   /* ms que quedan para ver si el click pendiente se vuelve doble; 0 = no hay */
 
@@ -68,6 +72,7 @@ static void LeerBoton(void) {
             if (apretado) {
                 sw_apretado_ms = 0;
                 sw_largo_enviado = false;
+                sw_muy_largo_enviado = false;
             } else if (!sw_largo_enviado) {
                 if (!doble_habilitado) {
                     Enviar(ENC_CLICK);
@@ -87,10 +92,17 @@ static void LeerBoton(void) {
         Enviar(ENC_CLICK);   // no vino el segundo click: era un click simple
     }
 
-    if (sw_estable && !sw_largo_enviado) {
-        if (++sw_apretado_ms >= ENCODER_CLICK_LARGO_MS) {
+    if (sw_estable) {
+        if (sw_apretado_ms < UINT16_MAX) {
+            sw_apretado_ms++;
+        }
+        if (!sw_largo_enviado && sw_apretado_ms >= ENCODER_CLICK_LARGO_MS) {
             sw_largo_enviado = true;
             Enviar(ENC_CLICK_LARGO);
+        }
+        if (!sw_muy_largo_enviado && sw_apretado_ms >= ENCODER_CLICK_MUY_LARGO_MS) {
+            sw_muy_largo_enviado = true;
+            Enviar(ENC_CLICK_MUY_LARGO);
         }
     }
 }
@@ -116,11 +128,10 @@ bool Encoder_Init(void) {
         .callback = MuestrearEncoder,
         .name = "encoder",
     };
-    esp_timer_handle_t timer;
-    if (esp_timer_create(&args, &timer) != ESP_OK) {
+    if (esp_timer_create(&args, &timer_muestreo) != ESP_OK) {
         return false;
     }
-    return esp_timer_start_periodic(timer, PERIODO_US) == ESP_OK;
+    return esp_timer_start_periodic(timer_muestreo, PERIODO_US) == ESP_OK;
 }
 
 void Encoder_EsperarMantenido(uint32_t ms) {
@@ -133,6 +144,29 @@ void Encoder_EsperarMantenido(uint32_t ms) {
         vTaskDelay(pdMS_TO_TICKS(10));   // espera a que lo suelte
     }
     xQueueReset(cola);
+}
+
+bool Encoder_DormirHastaMantenido(uint32_t ms) {
+    if (timer_muestreo != NULL) {
+        esp_timer_stop(timer_muestreo);   // en reposo no se muestrea: despierta solo el botón
+    }
+    while (true) {
+        while (!GPIORead(PIN_SW)) {
+            vTaskDelay(pdMS_TO_TICKS(10));   // espera a que lo suelte (el despertar es por nivel bajo)
+        }
+        gpio_wakeup_enable((gpio_num_t)PIN_SW, GPIO_INTR_LOW_LEVEL);
+        esp_sleep_enable_gpio_wakeup();
+        esp_light_sleep_start();
+
+        uint32_t apretado_ms = 0;
+        while (!GPIORead(PIN_SW) && apretado_ms < ms) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            apretado_ms += 10;
+        }
+        if (apretado_ms >= ms) {
+            return true;
+        }
+    }
 }
 
 void Encoder_SetDobleClick(bool activar) {

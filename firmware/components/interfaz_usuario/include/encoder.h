@@ -26,6 +26,7 @@
 /*==================[macros]=================================================*/
 #define ENCODER_INVERTIR_SENTIDO  1    /*!< 1 intercambia horario/antihorario (con el cableado actual girar a la derecha salía invertido) */
 #define ENCODER_CLICK_LARGO_MS    800  /*!< Tiempo apretado para que sea click largo */
+#define ENCODER_CLICK_MUY_LARGO_MS 3000 /*!< Tiempo apretado para que sea click muy largo (abre la clave desde el Monitoreo) */
 #define ENCODER_DOBLE_CLICK_MS    350  /*!< Tiempo máximo entre dos clicks para que cuenten como doble click */
 
 /*==================[typedef]================================================*/
@@ -38,6 +39,7 @@ typedef enum {
     ENC_CLICK,              /*!< Botón apretado y soltado rápido */
     ENC_CLICK_LARGO,        /*!< Botón mantenido ENCODER_CLICK_LARGO_MS */
     ENC_DOBLE_CLICK,        /*!< Dos clicks seguidos (solo si se activó con Encoder_SetDobleClick) */
+    ENC_CLICK_MUY_LARGO,    /*!< Botón mantenido ENCODER_CLICK_MUY_LARGO_MS (llega después del click largo, sin soltar) */
 } encoder_evento_t;
 
 /*==================[external functions declaration]=========================*/
@@ -73,6 +75,14 @@ bool Encoder_Leer(encoder_evento_t *evento, TickType_t espera);
  * @note Llamar después de Encoder_Init().
  */
 void Encoder_EsperarMantenido(uint32_t ms);
+
+/** @fn bool Encoder_DormirHastaMantenido(uint32_t ms)
+ * @brief Reposo: deja de muestrear el encoder y duerme en light sleep (despierta con el botón). Cada vez que
+ * despierta mide cuánto tiempo se mantiene apretado: con menos de ms vuelve a dormir sin hacer nada.
+ * @param ms Tiempo que hay que mantener apretado el botón para volver a encender
+ * @return true cuando se mantuvo apretado ms milisegundos (el main reinicia el equipo)
+ */
+bool Encoder_DormirHastaMantenido(uint32_t ms);
 
 /** @} */
 #endif /* ENCODER_H */

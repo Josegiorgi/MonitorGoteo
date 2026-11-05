@@ -15,7 +15,8 @@
  * las pantallas de alarma, con PROBAR_ALARMAS en 1 el equipo salta directo al Monitoreo después
  * del autotest, y girar el encoder ahí pasa por todas las alarmas (ninguna, oclusión,
  * desviación de flujo, fin de sachet, batería baja, colocación). Pulsar silencia la alarma
- * (queda el aviso abajo en el Monitoreo); en fin de sachet pasa a la pantalla de fin.
+ * (queda el aviso abajo en el Monitoreo), también en fin de sachet. La pantalla de fin de infusión
+ * se alcanza con "Finalizar infusión" del Menú técnico (doble click, código 1234).
  *
  * @section changelog Changelog
  *

@@ -46,29 +46,37 @@ static void Pie(u8g2_t *g, const char *texto) {
 
 /*==================[external functions definition]==========================*/
 void Pant_Autotest(u8g2_t *g, uint8_t bateria_pct, const ui_chequeo_t *chequeos, uint8_t cantidad, bool todos_ok) {
-    static const char *const estados[] = {"..", "OK", "ERR"};
-    char texto[24];
+    char texto[32];
+    const ui_chequeo_t *falla = NULL;
+
+    (void)todos_ok;
+    for (uint8_t i = 0; i < cantidad && i < UI_CHEQUEOS_MAX && falla == NULL; i++) {
+        if (chequeos[i].nombre != NULL && chequeos[i].estado == UI_CHEQUEO_FALLA) {
+            falla = &chequeos[i];
+        }
+    }
 
     Preparar(g);
     snprintf(texto, sizeof(texto), "BAT %u%%", bateria_pct);
-    Cabecera(g, texto, NULL);
-
-    // Chequeos en dos columnas de dos filas
-    u8g2_SetFont(g, u8g2_font_6x10_tr);
-    for (uint8_t i = 0; i < cantidad && i < UI_CHEQUEOS_MAX; i++) {
-        snprintf(texto, sizeof(texto), "%-4s %s", chequeos[i].nombre, estados[chequeos[i].estado]);
-        u8g2_DrawStr(g, (i % 2) ? 68 : 6, (i / 2) ? 44 : 30, texto);
+    Cabecera(g, "Autotest", texto);
+    if (falla != NULL) {
+        snprintf(texto, sizeof(texto), "Falla: %s", falla->nombre);
+        TextoCentrado(g, 31, texto, u8g2_font_6x13_tr, u8g2_font_6x10_tr);
+        TextoCentrado(g, 46, (falla->accion != NULL) ? falla->accion : "No usar", u8g2_font_6x13_tr, u8g2_font_6x10_tr);
+        Pie(g, "Reintentando...");
+    } else {
+        TextoCentrado(g, 36, "Chequeando...", u8g2_font_6x13_tr, u8g2_font_6x10_tr);
     }
-    Pie(g, todos_ok ? "Pulsar: seguir" : "Esperando...");
     u8g2_SendBuffer(g);
 }
 
-void Pant_Acceso(u8g2_t *g, const uint8_t *digitos, uint8_t posicion, bool error) {
+void Pant_Acceso(u8g2_t *g, const uint8_t *digitos, uint8_t posicion, bool error, uint16_t bloqueo_s) {
+    char espera[20];
     const uint8_t ancho = 20, alto = 24, separacion = 8, x0 = 12, y0 = 20;
     char caracter[2] = {0, 0};
 
     Preparar(g);
-    Cabecera(g, "Acceso tecnico", NULL);
+    Cabecera(g, "Clave", NULL);
     u8g2_SetFont(g, u8g2_font_10x20_tr);
 
     for (uint8_t i = 0; i < 4; i++) {
@@ -85,7 +93,12 @@ void Pant_Acceso(u8g2_t *g, const uint8_t *digitos, uint8_t posicion, bool error
         u8g2_DrawStr(g, x + (ancho - u8g2_GetStrWidth(g, caracter)) / 2, y0 + 20, caracter);
         u8g2_SetDrawColor(g, 1);
     }
-    Pie(g, error ? "Codigo incorrecto" : "Giro: +/- Pulsar: OK");
+    if (bloqueo_s > 0) {
+        snprintf(espera, sizeof(espera), "Espere %u s", bloqueo_s);   // tres errores seguidos: bloqueo temporal
+        Pie(g, espera);
+    } else {
+        Pie(g, error ? "Clave incorrecta" : "Giro: +/- Pulsar: OK");
+    }
     u8g2_SendBuffer(g);
 }
 
@@ -145,23 +158,41 @@ void Pant_Config(u8g2_t *g, uint8_t numero, uint8_t total, const char *nombre, c
     u8g2_SendBuffer(g);
 }
 
-void Pant_Resumen(u8g2_t *g, const ui_datos_t *d) {
-    char texto[24];
+void Pant_Resumen(u8g2_t *g, const ui_datos_t *d, uint8_t pagina, uint8_t motivo) {
+    char texto[32];
 
     Preparar(g);
-    Cabecera(g, "Confirmar", NULL);
-    u8g2_SetFont(g, u8g2_font_6x10_tr);
-    snprintf(texto, sizeof(texto), "FG  %u gtt/mL", d->factor_goteo);
-    u8g2_DrawStr(g, 6, 27, texto);
-    snprintf(texto, sizeof(texto), "Vol %u mL", d->volumen_total_ml);
-    u8g2_DrawStr(g, 6, 38, texto);
-    snprintf(texto, sizeof(texto), "Tiempo %u:%02u h", d->duracion_min / 60, d->duracion_min % 60);
-    u8g2_DrawStr(g, 6, 49, texto);
-    Pie(g, "Pulsar: iniciar");
+    Cabecera(g, motivo == 2 ? "Memoria llena" : "Confirmar", pagina == 0 ? "1/2" : "2/2");   // sin lugar en el registro: no se puede iniciar
+    if (pagina == 0) {
+        // El factor de goteo mal cargado es el error más peligroso: va grande y con la leyenda de verificarlo
+        u8g2_SetFont(g, u8g2_font_10x20_tr);
+        snprintf(texto, sizeof(texto), "FG %u", d->factor_goteo);
+        uint8_t ancho = u8g2_GetStrWidth(g, texto);
+        uint8_t x = (ANCHO - (ancho + 4 + 36)) / 2;   // 36 px es el ancho de "gtt/mL" en la fuente chica
+        u8g2_DrawStr(g, x, 36, texto);
+        u8g2_SetFont(g, u8g2_font_6x10_tr);
+        u8g2_DrawStr(g, x + ancho + 4, 36, "gtt/mL");
+        u8g2_SetFont(g, u8g2_font_5x7_tr);
+        u8g2_DrawStr(g, Centrar(g, "Verificar en el envase"), 44, "Verificar en el envase");
+        u8g2_DrawStr(g, Centrar(g, "de la guia"), 51, "de la guia");
+        Pie(g, "Pulsar: seguir");
+    } else {
+        u8g2_SetFont(g, u8g2_font_6x10_tr);
+        snprintf(texto, sizeof(texto), "Volumen  %u mL", d->volumen_total_ml);
+        u8g2_DrawStr(g, 6, 26, texto);
+        snprintf(texto, sizeof(texto), "Duracion %u:%02u h", d->duracion_min / 60, d->duracion_min % 60);
+        u8g2_DrawStr(g, 6, 37, texto);
+        // Caudal objetivo en mL/h y en gotas/min, para compararlo con la prescripción
+        float gotas_min = (d->duracion_min == 0) ? 0.0f : (float)d->volumen_total_ml * d->factor_goteo / d->duracion_min;
+        snprintf(texto, sizeof(texto), "%u mL/h  %.1f gtt/min", d->flujo_objetivo_mlh, (double)gotas_min);
+        u8g2_SetFont(g, u8g2_font_5x8_tr);
+        u8g2_DrawStr(g, Centrar(g, texto), 48, texto);
+        Pie(g, motivo == 0 ? "Pulsar: iniciar" : motivo == 1 ? "Menos de 2 gtt/min: no" : "Llamar a soporte tecnico");
+    }
     u8g2_SendBuffer(g);
 }
 
-void Pant_AjusteGoteo(u8g2_t *g, uint16_t gotas_min, uint16_t volumen_ml, uint16_t duracion_min, uint16_t factor_goteo) {
+void Pant_AjusteGoteo(u8g2_t *g, uint16_t gotas_min, uint16_t volumen_ml, uint16_t duracion_min, uint16_t factor_goteo, bool recordar) {
     char texto[32];
     uint8_t ancho_numero, x;
 
@@ -183,11 +214,11 @@ void Pant_AjusteGoteo(u8g2_t *g, uint16_t gotas_min, uint16_t volumen_ml, uint16
     u8g2_SetFont(g, u8g2_font_6x10_tr);
     u8g2_DrawStr(g, x + ancho_numero + 6, 47, "gtt/min");
 
-    Pie(g, "Pulsar: seguir");
+    Pie(g, recordar ? "Confirmar ajuste" : "Pulsar: seguir");   // a los 10 min sin confirmar el pie lo recuerda (con un beep por minuto)
     u8g2_SendBuffer(g);
 }
 
-void Pant_Alarma(u8g2_t *g, bool invertida, const char *nivel, const char *titulo, const char *detalle) {
+void Pant_Alarma(u8g2_t *g, bool invertida, const char *nivel, const char *derecha, const char *titulo, const char *detalle) {
     Preparar(g);
     if (invertida) {
         u8g2_DrawBox(g, 0, 0, ANCHO, 64);
@@ -195,6 +226,9 @@ void Pant_Alarma(u8g2_t *g, bool invertida, const char *nivel, const char *titul
     }
     u8g2_SetFont(g, u8g2_font_6x13_tr);
     u8g2_DrawStr(g, 2, 11, nivel);
+    if (derecha != NULL && derecha[0] != '\0') {
+        u8g2_DrawStr(g, ANCHO - 2 - u8g2_GetStrWidth(g, derecha), 11, derecha);   // dato corto a la derecha de la cabecera (p. ej. el % de desvío)
+    }
     u8g2_DrawHLine(g, 0, Y_LINEA_CAB, ANCHO);
 
     // Todas las alarmas usan la misma letra: el título más largo ("BATERIA BAJA") mide 120 px y
@@ -205,10 +239,11 @@ void Pant_Alarma(u8g2_t *g, bool invertida, const char *nivel, const char *titul
     u8g2_DrawStr(g, Centrar(g, detalle), 49, detalle);
 
     Pie(g, "Pulsar: silenciar");
+    u8g2_SetDrawColor(g, 1);   // con fondo blanco se dibujó en color 0: se restablece para que la próxima pantalla no quede negra sobre negro
     u8g2_SendBuffer(g);
 }
 
-void Pant_Fin(u8g2_t *g, uint8_t bateria_pct, uint16_t volumen_ml, uint32_t tiempo_s) {
+void Pant_SinInfusion(u8g2_t *g, uint8_t bateria_pct) {
     char texto[24];
 
     Preparar(g);
@@ -216,21 +251,44 @@ void Pant_Fin(u8g2_t *g, uint8_t bateria_pct, uint16_t volumen_ml, uint32_t tiem
     Cabecera(g, texto, NULL);
 
     u8g2_SetFont(g, u8g2_font_6x13_tr);
-    u8g2_DrawStr(g, Centrar(g, "Infusion finalizada"), 32, "Infusion finalizada");
-    snprintf(texto, sizeof(texto), "%u mL %lu:%02lu h", volumen_ml, (unsigned long)(tiempo_s / 3600),
-             (unsigned long)((tiempo_s / 60) % 60));
-    u8g2_DrawStr(g, Centrar(g, texto), 47, texto);
-    Pie(g, "Doble click: menu");
+    u8g2_DrawStr(g, Centrar(g, "Sin infusion activa"), 36, "Sin infusion activa");
+    Pie(g, "Mantener 3s: ajustes");
     u8g2_SendBuffer(g);
 }
 
-void Pant_Apagar(u8g2_t *g, bool si_elegido) {
-    const char *textos[2] = {"No", "Si"};
-    const uint8_t x[2] = {16, 72}, y = 22, ancho = 40, alto = 22;
+void Pant_Mensaje(u8g2_t *g, const char *texto) {
+    Preparar(g);
+    TextoCentrado(g, 36, texto, u8g2_font_6x13_tr, u8g2_font_6x10_tr);
+    u8g2_SendBuffer(g);
+}
+
+void Pant_Diagnostico(u8g2_t *g, const ui_datos_t *d) {
+    char texto[32];
 
     Preparar(g);
-    Cabecera(g, "Apagar equipo?", NULL);
-    u8g2_SetFont(g, u8g2_font_10x20_tr);
+    Cabecera(g, "Diagnostico", NULL);
+    u8g2_SetFont(g, u8g2_font_6x10_tr);
+    snprintf(texto, sizeof(texto), "Base: %u / %u mV", d->base_optica_mv[0], d->base_optica_mv[1]);
+    u8g2_DrawStr(g, 4, 26, texto);
+    snprintf(texto, sizeof(texto), "Angulo: %.1f grados", (double)d->angulo_grados);
+    u8g2_DrawStr(g, 4, 36, texto);
+    snprintf(texto, sizeof(texto), "Bat: %u mV  %u%%", d->bateria_mv, d->bateria_pct);
+    u8g2_DrawStr(g, 4, 46, texto);
+    snprintf(texto, sizeof(texto), "FW %s  Reg %u%s", (d->version != NULL) ? d->version : "?", d->registro_lineas,
+             d->registro_descargado ? "" : " *");   // * = registro sin descargar
+    Pie(g, texto);
+    u8g2_SendBuffer(g);
+}
+
+void Pant_Confirmar(u8g2_t *g, const char *titulo, const char *linea1, const char *linea2, bool si_elegido) {
+    const char *textos[2] = {"No", "Si"};
+    const uint8_t x[2] = {20, 72}, y = 39, ancho = 36, alto = 12;
+
+    Preparar(g);
+    Cabecera(g, titulo, NULL);
+    TextoCentrado(g, 26, linea1, u8g2_font_6x10_tr, u8g2_font_5x7_tr);
+    TextoCentrado(g, 36, linea2, u8g2_font_6x10_tr, u8g2_font_5x7_tr);
+    u8g2_SetFont(g, u8g2_font_6x10_tr);
     for (uint8_t i = 0; i < 2; i++) {
         bool elegido = (i == 1) == si_elegido;
         if (elegido) {
@@ -239,7 +297,7 @@ void Pant_Apagar(u8g2_t *g, bool si_elegido) {
         } else {
             u8g2_DrawFrame(g, x[i], y, ancho, alto);
         }
-        u8g2_DrawStr(g, x[i] + (ancho - u8g2_GetStrWidth(g, textos[i])) / 2, y + 18, textos[i]);
+        u8g2_DrawStr(g, x[i] + (ancho - u8g2_GetStrWidth(g, textos[i])) / 2, y + 10, textos[i]);
         u8g2_SetDrawColor(g, 1);
     }
     Pie(g, "Giro: elegir Pulsar: OK");
