@@ -4,6 +4,7 @@
 #include "adxl345.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_log.h"
 
 /*==================[macros and definitions]=================================*/
 #define TAREA_STACK        3072
@@ -59,6 +60,9 @@ static void TareaInclinacion(void *arg) {
             // se confunde un valor viejo con uno actual.
             if (fallas < 255) {
                 fallas++;
+            }
+            if (fallas == 1) {
+                ESP_LOGW("inclinacion", "fallo la lectura del ADXL345 por I2C");   // solo la primera de una racha, para no llenar la consola
             }
             if (fallas >= INCLINACION_FALLAS_MAX) {
                 valida = false;

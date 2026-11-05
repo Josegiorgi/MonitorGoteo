@@ -19,6 +19,7 @@
  * |   Date	    | Description                                    |
  * |:----------:|:-----------------------------------------------|
  * | 04/11/2026 | Document creation: sale de AngleTask de pruebabpw34 |
+ * | 04/11/2026 | INCLINACION_PERIODO_MS de 250 a 1000 ms: menos lecturas por segundo en el bus I2C compartido con la OLED |
  *
  */
 
@@ -26,7 +27,7 @@
 
 /*==================[macros]=================================================*/
 #define INCLINACION_OFFSET_DEG   11.1f  /*!< Ángulo del eje Z con el equipo en la posición de referencia (cero) dentro del gabinete: varía entre 10.6 y 11.7 en reposo, punto medio 11.1 (medido en prueba_adxl345). Se resta para que ahí el ángulo sea 0 */
-#define INCLINACION_PERIODO_MS   250    /*!< Cada cuánto se actualiza el ángulo. Cambia mucho más lento que la señal de gotas */
+#define INCLINACION_PERIODO_MS   1000   /*!< Cada cuánto se actualiza el ángulo. Cambia mucho más lento que la señal de gotas, y la alarma de colocación se sostiene 5 s. Antes 250 ms: se espacia para tener menos tráfico en el bus I2C compartido con la OLED, donde el ADXL345 fallaba cada ~3 s */
 #define INCLINACION_LECTURAS     6      /*!< Lecturas que se promedian por ángulo (el ADXL345 entrega una nueva cada 10 ms: ~60 ms, como el promedio de 32 lecturas cada 2 ms del análisis) */
 #define INCLINACION_FALLAS_MAX   3      /*!< Lecturas fallidas seguidas tras las que el ángulo pasa a no válido */
 

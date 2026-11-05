@@ -57,6 +57,21 @@ bool I2C_initialize( uint32_t clockRateHz );
  */
 bool I2C_probe(uint8_t devAddr, uint16_t timeout);
 
+/** @fn uint32_t I2C_FallosGuardaSCL(void)
+ * @brief Operaciones que no se iniciaron porque la guarda vio SCL en bajo (posible bus trabado), desde que arrancó.
+ */
+uint32_t I2C_FallosGuardaSCL(void);
+
+/** @fn uint32_t I2C_FallosDriver(void)
+ * @brief Operaciones que llegaron al driver de ESP-IDF y fallaron (sin respuesta del esclavo, tiempo agotado...), desde que arrancó.
+ */
+uint32_t I2C_FallosDriver(void);
+
+/** @fn int I2C_UltimoErrorDriver(void)
+ * @brief Último código esp_err_t que devolvió el driver al fallar una operación (0 si nunca falló).
+ */
+int I2C_UltimoErrorDriver(void);
+
 /** @fn I2C_enable(bool isEnabled)
  * @brief Enable or disable I2C
  * @param isEnabled true = enable, false = disable

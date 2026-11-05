@@ -14,6 +14,7 @@
 #include <esp_err.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/semphr.h>
 #include <string.h>
 #include <stdlib.h>
 #include "driver/i2c_master.h"
@@ -41,6 +42,18 @@ static struct {
     i2c_master_dev_handle_t handle;
 } s_i2c_devices[I2C_MCU_MAX_DEVICES];
 static uint8_t s_i2c_devices_count = 0;
+
+/* Diagnóstico: por qué fallan las operaciones, para distinguir la guarda de SCL de un error del
+ * driver de ESP-IDF (falta de respuesta del esclavo, tiempo agotado). Valen para todo el bus. */
+static volatile uint32_t s_fallos_guarda_scl = 0;
+static volatile uint32_t s_fallos_driver = 0;
+static volatile esp_err_t s_ultimo_error_driver = ESP_OK;
+
+/** Candado del bus: solo una tarea a la vez revisa la guarda de SCL y hace su transferencia. Sin él,
+ * si dos tareas usan el bus (por ejemplo la OLED y el ADXL345) una puede mirar SCL mientras la otra
+ * está transmitiendo y tomarlo por un bus trabado, y fallar. Se crea en I2C_initialize(). */
+static SemaphoreHandle_t s_i2c_mutex = NULL;
+#define I2C_MCU_LOCK_TIMEOUT_MS 1000
 
 /*==================[internal functions declaration]=========================*/
 /** Libera un esclavo que quedó sujetando SDA en bajo (por ejemplo, si el micro se reinició en
@@ -101,7 +114,11 @@ static bool i2c_mcu_scl_stuck_low(void)
 
 static esp_err_t i2c_mcu_get_device_handle(uint8_t devAddr, i2c_master_dev_handle_t *ret_handle)
 {
-    if (s_i2c_bus_handle == NULL || i2c_mcu_scl_stuck_low()) {
+    if (s_i2c_bus_handle == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (i2c_mcu_scl_stuck_low()) {
+        s_fallos_guarda_scl++;
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -138,6 +155,31 @@ static int i2c_mcu_timeout_ms(uint16_t timeout)
     return (timeout > 0) ? (int)timeout : I2C_MASTER_TIMEOUT_MS;
 }
 
+/** Cuenta una operación que llegó al driver de ESP-IDF y falló (no cuenta las que frenó la guarda de SCL) */
+static void i2c_mcu_registrar_fallo_driver(esp_err_t ret)
+{
+    if (ret != ESP_OK) {
+        s_fallos_driver++;
+        s_ultimo_error_driver = ret;
+    }
+}
+
+/** Toma el candado del bus. Sin candado creado (bus sin iniciar) no bloquea. false si no pudo tomarlo a tiempo. */
+static bool i2c_mcu_lock(void)
+{
+    if (s_i2c_mutex == NULL) {
+        return true;
+    }
+    return xSemaphoreTake(s_i2c_mutex, pdMS_TO_TICKS(I2C_MCU_LOCK_TIMEOUT_MS)) == pdTRUE;
+}
+
+static void i2c_mcu_unlock(void)
+{
+    if (s_i2c_mutex != NULL) {
+        xSemaphoreGive(s_i2c_mutex);
+    }
+}
+
 /*==================[internal functions declaration]=========================*/
 
 /*==================[external functions definition]==========================*/
@@ -149,6 +191,10 @@ bool I2C_initialize( uint32_t clockRateHz )
     if (s_i2c_bus_handle != NULL) {
         s_i2c_clock_rate_hz = clockRateHz;
         return true;
+    }
+
+    if (s_i2c_mutex == NULL) {
+        s_i2c_mutex = xSemaphoreCreateMutex();
     }
 
     i2c_mcu_recover_bus();   // por si un esclavo quedó trabado por un reinicio en medio de una transacción
@@ -175,10 +221,32 @@ bool I2C_initialize( uint32_t clockRateHz )
  */
 bool I2C_probe(uint8_t devAddr, uint16_t timeout)
 {
-    if (s_i2c_bus_handle == NULL || i2c_mcu_scl_stuck_low()) {
+    if (s_i2c_bus_handle == NULL || !i2c_mcu_lock()) {
         return false;
     }
-    return i2c_master_probe(s_i2c_bus_handle, devAddr, i2c_mcu_timeout_ms(timeout)) == ESP_OK;
+    bool ok = false;
+    if (i2c_mcu_scl_stuck_low()) {
+        s_fallos_guarda_scl++;
+    } else {
+        ok = (i2c_master_probe(s_i2c_bus_handle, devAddr, i2c_mcu_timeout_ms(timeout)) == ESP_OK);
+    }
+    i2c_mcu_unlock();
+    return ok;
+}
+
+uint32_t I2C_FallosGuardaSCL(void)
+{
+    return s_fallos_guarda_scl;
+}
+
+uint32_t I2C_FallosDriver(void)
+{
+    return s_fallos_driver;
+}
+
+int I2C_UltimoErrorDriver(void)
+{
+    return (int)s_ultimo_error_driver;
 }
 
 /** Enable or disable I2C
@@ -261,10 +329,15 @@ int8_t I2C_readBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *
         return 0;
     }
 
+    if (!i2c_mcu_lock()) {
+        return 0;
+    }
     ret = i2c_mcu_get_device_handle(devAddr, &dev_handle);
     if (ret == ESP_OK) {
         ret = i2c_master_transmit_receive(dev_handle, &register_addr, 1, data, length, i2c_mcu_timeout_ms(timeout));
+        i2c_mcu_registrar_fallo_driver(ret);
     }
+    i2c_mcu_unlock();
 
     return (ret == ESP_OK) ? length : 0;
 }
@@ -278,11 +351,17 @@ bool I2C_writeWord(uint8_t devAddr, uint8_t regAddr, uint16_t data){
 
 void I2C_SelectRegister(uint8_t devAddr, uint8_t reg){
     i2c_master_dev_handle_t dev_handle = NULL;
+
+    if (!i2c_mcu_lock()) {
+        return;
+    }
     esp_err_t ret = i2c_mcu_get_device_handle(devAddr, &dev_handle);
 
     if (ret == ESP_OK) {
         ret = i2c_master_transmit(dev_handle, &reg, 1, i2c_mcu_timeout_ms(0));
+        i2c_mcu_registrar_fallo_driver(ret);
     }
+    i2c_mcu_unlock();
 }
 
 /** write a single bit in an 8-bit device register.
@@ -337,11 +416,17 @@ bool I2C_writeBits(uint8_t devAddr, uint8_t regAddr, uint8_t bitStart, uint8_t l
 bool I2C_writeByte(uint8_t devAddr, uint8_t regAddr, uint8_t data) {
     uint8_t buffer[2] = {regAddr, data};
     i2c_master_dev_handle_t dev_handle = NULL;
+
+    if (!i2c_mcu_lock()) {
+        return false;
+    }
     esp_err_t ret = i2c_mcu_get_device_handle(devAddr, &dev_handle);
 
     if (ret == ESP_OK) {
         ret = i2c_master_transmit(dev_handle, buffer, sizeof(buffer), i2c_mcu_timeout_ms(0));
+        i2c_mcu_registrar_fallo_driver(ret);
     }
+    i2c_mcu_unlock();
 
     return (ret == ESP_OK);
 }
@@ -370,10 +455,16 @@ bool I2C_writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *d
     buffer[0] = regAddr;
     memcpy(&buffer[1], data, length);
 
+    if (!i2c_mcu_lock()) {
+        free(buffer);
+        return false;
+    }
     ret = i2c_mcu_get_device_handle(devAddr, &dev_handle);
     if (ret == ESP_OK) {
         ret = i2c_master_transmit(dev_handle, buffer, length + 1, i2c_mcu_timeout_ms(0));
+        i2c_mcu_registrar_fallo_driver(ret);
     }
+    i2c_mcu_unlock();
 
     free(buffer);
     return (ret == ESP_OK);

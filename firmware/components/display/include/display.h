@@ -21,10 +21,12 @@
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation                              |
  * | 03/11/2026 | Display_Init reintenta hasta 10 veces (50 ms entre intentos) encontrar la OLED: justo al encender no contestaba y quedaba "no responde" |
+ * | 04/11/2026 | Display_FallosI2C: cuenta los envíos a la OLED que fallaron, para diagnosticar pantallas que se borronean |
  *
  */
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "u8g2.h"
 
 /*==================[external functions declaration]=========================*/
@@ -40,6 +42,14 @@ bool Display_Init(void);
  * @brief Handle de u8g2 para dibujar con la API de u8g2
  */
 u8g2_t *Display_Handle(void);
+
+/** @fn uint32_t Display_FallosI2C(void)
+ * @brief Cantidad de envíos a la OLED por I2C que fallaron desde que arrancó. Cada uno es un tramo de
+ * imagen perdido: la pantalla queda a medias hasta el próximo redibujado. Sirve para diagnosticar
+ * pantallas que se borronean (el programa principal lo puede imprimir; acá no se imprime porque
+ * la pila de la tarea que dibuja ya está muy usada).
+ */
+uint32_t Display_FallosI2C(void);
 
 /** @fn void Display_Clear(void)
  * @brief Borra el buffer (no se ve hasta Display_Flush)

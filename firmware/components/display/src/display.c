@@ -20,6 +20,7 @@ static u8g2_t u8g2;
 static uint8_t tx_buffer[TX_BUFFER_LEN];
 static uint16_t tx_len = 0;
 static bool tx_overflow = false;
+static uint32_t fallos_i2c = 0;   /*!< Envíos a la OLED que fallaron desde que arrancó (para diagnosticar pantallas que se borronean) */
 
 /*==================[internal functions definition]==========================*/
 /** Callback de bytes de u8g2: junta los bytes de una transferencia y los manda por i2c_mcu.
@@ -47,7 +48,14 @@ static uint8_t ByteCb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg_ptr)
             return 0;
         }
         /* u8g2 guarda la dirección ya corrida un bit a la izquierda (0x78): i2c_mcu usa 7 bits */
-        return I2C_writeBytes(u8x8_GetI2CAddress(u8x8) >> 1, tx_buffer[0], tx_len - 1, &tx_buffer[1]) ? 1 : 0;
+        if (!I2C_writeBytes(u8x8_GetI2CAddress(u8x8) >> 1, tx_buffer[0], tx_len - 1, &tx_buffer[1])) {
+            // Se pierde un tramo de la imagen: la pantalla queda a medias hasta el próximo redibujado.
+            // Solo se cuenta: acá la pila de la tarea ya está muy usada por u8g2 y no conviene imprimir.
+            // El programa principal lee el contador con Display_FallosI2C() y avisa.
+            fallos_i2c++;
+            return 0;
+        }
+        return 1;
     default:
         return 0;
     }
@@ -116,6 +124,11 @@ bool Display_Init(void)
 u8g2_t *Display_Handle(void)
 {
     return &u8g2;
+}
+
+uint32_t Display_FallosI2C(void)
+{
+    return fallos_i2c;
 }
 
 void Display_Clear(void)
