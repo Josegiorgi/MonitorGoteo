@@ -243,7 +243,7 @@ void Pant_Alarma(u8g2_t *g, bool invertida, const char *nivel, const char *derec
     u8g2_SendBuffer(g);
 }
 
-void Pant_SinInfusion(u8g2_t *g, uint8_t bateria_pct) {
+void Pant_SinInfusion(u8g2_t *g, uint8_t bateria_pct, bool registro_pendiente) {
     char texto[24];
 
     Preparar(g);
@@ -251,8 +251,17 @@ void Pant_SinInfusion(u8g2_t *g, uint8_t bateria_pct) {
     Cabecera(g, texto, NULL);
 
     u8g2_SetFont(g, u8g2_font_6x13_tr);
-    u8g2_DrawStr(g, Centrar(g, "Sin infusion activa"), 36, "Sin infusion activa");
-    Pie(g, "Mantener 3s: ajustes");
+    if (registro_pendiente) {
+        // Aviso (sin sonido): hasta que la app confirme la descarga
+        u8g2_DrawStr(g, Centrar(g, "Sin infusion activa"), 27, "Sin infusion activa");
+        u8g2_SetFont(g, u8g2_font_6x10_tr);
+        u8g2_DrawStr(g, Centrar(g, "Registro pendiente"), 40, "Registro pendiente");
+        u8g2_DrawStr(g, Centrar(g, "de descarga"), 50, "de descarga");
+        Pie(g, "Conectar la app");
+    } else {
+        u8g2_DrawStr(g, Centrar(g, "Sin infusion activa"), 36, "Sin infusion activa");
+        Pie(g, "Mantener 3s: ajustes");
+    }
     u8g2_SendBuffer(g);
 }
 

@@ -89,7 +89,7 @@ static int64_t rearme_us[ALARMAS_CANTIDAD];
 static alarmas_cb_t callback = NULL;
 
 static const char *const nombres[ALARMAS_CANTIDAD] = {
-    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "COLOCACION", "FALLA_EQUIPO", "BATERIA_CRITICA",
+    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "EQUIPO_REINICIADO", "COLOCACION", "BATERIA_CRITICA",
     "DESVIACION_FUERTE", "GOTEO_SIN_MONITOREO", "BATERIA_BAJA", "AVISO_DESVIACION_LEVE",
     "AVISO_PROXIMO_A_FINALIZAR", "AVISO_BATERIA"};
 
@@ -288,10 +288,6 @@ void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duraci
     memset(rearme_us, 0, sizeof(rearme_us));
 }
 
-void Alarmas_SetGotas(uint32_t n) {
-    gotas = n;
-}
-
 void Alarmas_GotaSinMonitoreo(int64_t ahora_us) {
     if (gsm_ultima_us == 0 || (ahora_us - gsm_ultima_us) > US(t_gsm_hueco_s)) {
         gsm_ini_us = ahora_us;   // empieza una racha nueva
@@ -338,7 +334,7 @@ void Alarmas_Gota(int64_t ahora_us) {
 
 void Alarmas_Actualizar(const alarmas_entrada_t *e, int64_t ahora_us) {
     EvaluarBateria(e, ahora_us);
-    Poner(ALARMA_FALLA_EQUIPO, e->falla_equipo, ahora_us);
+    Poner(ALARMA_EQUIPO_REINICIADO, e->equipo_reiniciado, ahora_us);
 
     // Goteo sin monitoreo: gotas continuas durante GSM_PERSIST_S sin infusión activa. Se resuelve cuando se cortan
     bool racha = gsm_ultima_us != 0 && (ahora_us - gsm_ultima_us) <= US(t_gsm_hueco_s);

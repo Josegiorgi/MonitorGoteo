@@ -50,12 +50,6 @@ void Goteo_Iniciar(uint16_t factor_goteo, int64_t ahora_us) {
     memset(horas_us, 0, sizeof(horas_us));
 }
 
-void Goteo_Retomar(uint16_t factor_goteo, uint32_t gotas_contadas, uint32_t tiempo_s, int64_t ahora_us) {
-    Goteo_Iniciar(factor_goteo, ahora_us);
-    gotas = gotas_contadas;
-    t_inicio_us = ahora_us - (int64_t)tiempo_s * 1000000;   // el tiempo continúa desde el último valor guardado
-}
-
 void Goteo_ReiniciarTiempo(int64_t ahora_us) {
     t_inicio_us = ahora_us;
     t_ref_us = ahora_us;

@@ -1,0 +1,8 @@
+# Tabla de particiones de monitor_goteo (flash de 2 MB)
+# La partición "registro" guarda el registro de la infusión (líneas de 16 bytes, ver components/registro):
+# 0xE0000 = 917504 B = 57344 líneas, unos 35 días de infusión continua (1 muestra por minuto más los eventos).
+# Name,     Type, SubType, Offset,   Size,    Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+phy_init,   data, phy,     0xf000,   0x1000,
+factory,    app,  factory, 0x10000,  0x100000,
+registro,   data, 0x40,    0x110000, 0xE0000,

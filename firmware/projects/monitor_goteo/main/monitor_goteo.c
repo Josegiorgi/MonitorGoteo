@@ -29,7 +29,7 @@
  * siempre) y acortan la estabilización del desvío a 20 s, su persistencia a 20 s (30 s el aviso) y
  * el re-armado a 20 s; además el goteo sin monitoreo a 20 s (se resuelve a los 15 s sin gotas), la inactividad de
  * la clave, Ajustes y Sin infusión a 20 s, la del Modo Técnico a 30 s, el bloqueo de la clave a 15 s, el recordatorio del
- * Ajuste de goteo a los 30 s (beep cada 10 s), la muestra del registro cada 15 s y el aviso "Monitoreo reanudado" a 30 s.
+ * Ajuste de goteo a los 30 s (beep cada 10 s), la muestra del registro cada 15 s.
  * Al arrancar, un escenario de prueba lo avisa en el log y al compilar (la
  * batería se prueba aparte, en projects/test_bateria):
  *
@@ -56,13 +56,13 @@
  * colocación, a los 5 s con el ángulo en rango (el click en su pantalla la silencia y vuelve al Monitoreo). La infusión la finaliza la enfermera: mantener
  * el botón 3 s, clave, Ajustes > Detener monitoreo (apaga el sonido y deja pasar a una nueva infusión).
  *
- * Pendiente para completar la especificación de inicio y navegación: clave clínica y pulsación larga,
- * menú de Ajustes, autotest completo, reanudación tras un reinicio con la memoria no volátil,
- * registro de eventos, BLE y app, reposo y Modo Técnico.
+ * Registro pendiente de descarga (diseño del 10/11/2026, ver el README.md del proyecto): al terminar la infusión, o al
+ * reiniciarse con una infusión sin terminar (que YA NO se retoma: queda interrumpida y suena la alarma EQUIPO_REINICIADO), el
+ * minuto sigue contando hasta que la app confirme la descarga con OK (módulo pendiente.c). Mientras tanto la pantalla avisa
+ * "Registro pendiente de descarga" (sin sonido) y se pregunta antes de empezar una infusión nueva o de apagar.
  *
- * Diferencias con la especificación que quedan: la interfaz sigue usando un único ui_alarma_t, así
- * que VOLUMEN_COMPLETO se muestra como "fin de sachet" y la batería crítica como "batería baja"; y
- * el Resumen todavía no impide iniciar con menos de 2 gotas/min.
+ * Diferencia con la especificación que queda: la interfaz sigue usando un único ui_alarma_t, así que VOLUMEN_COMPLETO se
+ * muestra como "fin de sachet" y la batería crítica como "batería baja".
  *
  * @section hardConn Hardware Connection
  *
@@ -91,6 +91,9 @@
  * | 04/11/2026 | Se integra el ADXL345 (componente inclinacion): autotest "ACEL" real, ángulo en la pantalla de colocación y alarma de colocación. Tolerancia de 2,5° a 8° según ../analisis_bpw34 |
  * | 04/11/2026 | BATERIA_SIMULADA pasa a 0: la alarma de batería se prueba aparte, después de probar el resto |
  * | 04/11/2026 | Escenarios de prueba (ESCENARIO): oclusión y fin de sachet, desvío y colocación, y batería, con la configuración precargada y tiempos de alarma cortos (Alarmas_SetTiempos). Por defecto ESCENARIO_NORMAL |
+ * | 10/11/2026 | Ya no se retoma la infusión tras un reinicio: se la da por interrumpida (REINICIO + alarma EQUIPO_REINICIADO) y se pide la descarga. Después del FIN el minuto sigue contando hasta el OK de la app (módulo pendiente), con aviso "Registro pendiente de descarga" y confirmación al empezar una infusión nueva o apagar |
+ * | 07/11/2026 | USAR_BLE = 0 compila el firmware sin Bluetooth; en los escenarios de prueba el registro se muestra por consola (cada línea que se guarda y las últimas 60 al arrancar) |
+ * | 07/11/2026 | BLE con la app de la enfermera (componente aparte comunicacion): ID de infusión, gotas totales en el FIN y sentido del desvío en el registro; Comunicacion_Init después del autotest y Comunicacion_Apagar antes del reposo |
  * | 05/11/2026 | Los escenarios de prueba también acortan los tiempos del goteo sin monitoreo, la interfaz, el recordatorio del Ajuste, la muestra del registro y el aviso de reanudación |
  * | 05/11/2026 | El registro pasa a una partición propia de la flash (partitions.csv): una muestra por minuto y eventos de 16 bytes; la NVS guarda solo la configuración y dónde empieza la infusión. Al retomar, el minuto y el contador salen de la última muestra. El Resumen no deja iniciar si no hay lugar ("Memoria llena") |
  * | 05/11/2026 | Etapa 6: Apagar muestra "Registro guardado" 2 s y pasa a reposo (pantalla en negro, sensado y buzzer apagados, light sleep; el botón 3 s lo reinicia); Modo Técnico con el código técnico en la clave del arranque (Diagnóstico, Probar alarma, Borrar registro y Salir; 5 min sin actividad reinician); no se pide de nuevo el botón 3 s después del reposo o de Salir |
@@ -127,6 +130,8 @@
 #include "inclinacion.h"
 #include "bateria.h"
 #include "registro.h"
+#include "pendiente.h"
+#include "comunicacion.h"
 #include "display.h"
 #include "i2c_mcu.h"
 
@@ -144,20 +149,24 @@
 #define BATERIA_MIN_ARRANQUE  10      /*!< El autotest pide más que este % de batería (o cargador, que sube la tensión) */
 #define AJUSTE_RECORDATORIO_S 600     /*!< Segundos en el Ajuste de goteo sin confirmar para empezar a recordarlo */
 #define AJUSTE_BEEP_CADA_S    60      /*!< Cada cuánto suena el beep del recordatorio */
+#define NOMBRE_BLE            "MonitorGoteo-01"   /*!< Nombre del equipo para la app: cambiarlo en cada equipo (hasta 20 caracteres) */
 #define FIRMWARE_VERSION      "0.1"   /*!< Versión que muestra el Diagnóstico del Modo Técnico */
 #define MARCA_SIN_ESPERA      0x5AFE0B07   /*!< Marca (en memoria que sobrevive al reinicio) para no pedir de nuevo el botón 3 s después de salir del reposo o del Modo Técnico */
-#define GUARDAR_CADA_S        60      /*!< Cada cuánto se escribe una muestra en el registro (contador, caudal y volumen): de ahí se retoma tras un reinicio */
-#define REANUDADO_AVISO_S     300     /*!< Cuánto tiempo queda el aviso "Monitoreo reanudado" */
+#define GUARDAR_CADA_S        60      /*!< Cada cuánto se escribe una muestra en el registro (contador, caudal y volumen): de ahí sale el último minuto guardado si el equipo se reinicia */
 
 #define TOLERANCIA_GRADOS     8.0f  /*!< Ángulo máximo (hacia cualquier lado) para dar la colocación por correcta. En las tomas de
                                          ../analisis_bpw34 (c1, c2, c4, c5) la detección empieza a perderse a 9.8° del lado positivo y
                                          a -10.8° del negativo (pocos cortes por lado): se deja ~2° de margen. Antes 2.5° provisorio */
 /* Escenario: qué configuración arranca precargada y si los tiempos de alarma se acortan (ver arriba).
  * Cambiar esta línea para probar y VOLVER A ESCENARIO_NORMAL para la versión de verdad. */
+/* Bluetooth con la app: 1 = el firmware final. 0 = firmware SIN Bluetooth (como antes del BLE), para probar el resto
+ * del equipo. VOLVER A 1 para la versión final. */
+#define USAR_BLE                     1
+
 #define ESCENARIO_NORMAL             0
 #define ESCENARIO_OCLUSION_FIN       1
 #define ESCENARIO_DESVIO_COLOCACION  2
-#define ESCENARIO                    ESCENARIO_NORMAL   /*!< por defecto, la versión final es ESCENARIO_NORMAL */
+#define ESCENARIO                    ESCENARIO_DESVIO_COLOCACION   /*!< por defecto, la versión final es ESCENARIO_NORMAL */
 
 #if ESCENARIO == ESCENARIO_OCLUSION_FIN
 #define NOMBRE_ESCENARIO      "OCLUSION_FIN"
@@ -175,6 +184,10 @@
 #define CONFIG_DURACION_MIN   (8 * 60)
 #endif
 
+#if !USAR_BLE
+#warning "monitor_goteo compilado SIN Bluetooth (USAR_BLE = 0): volver a 1 para la versión final"
+#endif
+
 #if ESCENARIO != ESCENARIO_NORMAL
 #warning "monitor_goteo compilado en un ESCENARIO DE PRUEBA (tiempos de alarma acortados): volver a ESCENARIO_NORMAL para la versión final"
 #endif
@@ -184,11 +197,9 @@
 #undef AJUSTE_RECORDATORIO_S
 #undef AJUSTE_BEEP_CADA_S
 #undef GUARDAR_CADA_S
-#undef REANUDADO_AVISO_S
 #define AJUSTE_RECORDATORIO_S 30
 #define AJUSTE_BEEP_CADA_S    10
 #define GUARDAR_CADA_S        15
-#define REANUDADO_AVISO_S     30
 #endif
 
 static const char *TAG = "monitor_goteo";
@@ -222,11 +233,12 @@ static bool angulo_valido = false;     /*!< true si la última lectura del acele
 RTC_NOINIT_ATTR static uint32_t marca_sin_espera;   /*!< MARCA_SIN_ESPERA si el reinicio fue a propósito (reposo o Salir del Modo Técnico) */
 static uint8_t prueba_sonando = 0;     /*!< Modo Técnico: patrón que está sonando (0 = ninguno, n = patrón n-1) */
 static bool memoria_ok = false;        /*!< true si la memoria no volátil (NVS) quedó lista */
-static bool falla_equipo = false;      /*!< true si el autotest falló al retomar una infusión tras un reinicio (alarma alta) */
+static volatile bool ok_recibido = false;   /*!< La app confirmó la descarga (OK por BLE): lo atiende el lazo principal */
 static bool pitando_falla = false;     /*!< true mientras el buzzer avisa que la pantalla falló en el autotest */
 static int64_t ultimo_guardado_us = 0; /*!< Última vez que se escribió la muestra de 1 min en el registro */
 static uint32_t inicio_linea_activa = 0; /*!< Línea del registro donde empezó la infusión activa */
-static int64_t reanudado_ini_us = 0;   /*!< Hora en que se retomó la infusión tras un reinicio (para el aviso "Monitoreo reanudado") */
+static uint32_t id_activa = 0;         /*!< ID de la infusión activa (o de la última) */
+static uint8_t direccion_desvio[ALARMAS_CANTIDAD];   /*!< 0 = alto, 1 = bajo: sentido del desvío cuando se activó (para el registro) */
 static uint16_t duracion_guardada = 0; /*!< Duración en curso (para anotar CAMBIO_DATOS con el valor anterior) */
 static int64_t ajuste_ini_us = 0;      /*!< Hora en que se entró al Ajuste de goteo (para el recordatorio de los 10 min) */
 static int64_t ultimo_recordatorio_us = 0;
@@ -345,7 +357,7 @@ static void AutotestInicio(bool bloquear) {
         } else {
             UI_PantallaInicio(t_ms / PERIODO_ANIMACION_MS);
         }
-        // Normal: no deja continuar con una falla. Al retomar tras un reinicio no hay enfermera para leerla: sigue (y da alarma)
+        // Normal: no deja continuar con una falla. Con un registro pendiente (reinicio) no hay enfermera para leerla: sigue y suena la alarma
     } while (t_ms < DURACION_INICIO_MS || (bloquear && !TodosOk()));
     if (pitando_falla) {
         pitando_falla = false;
@@ -362,6 +374,34 @@ static uint16_t MinutoInfusion(int64_t ahora_us) {
     return (m > UINT16_MAX) ? UINT16_MAX : (uint16_t)m;
 }
 
+#if USAR_BLE
+/** Lo que le informamos a la comunicación BLE (componente aparte): estado de la última infusión, el minuto actual y el OK */
+static uint8_t EstadoParaBle(void) {
+    if (midiendo && datos.infusion_configurada) {
+        return REGISTRO_ESTADO_EN_CURSO;       // 1 = en curso
+    }
+    return Pendiente_Estado();                 // 0 = terminada, 2 = interrumpida por un reinicio
+}
+
+/** Minuto actual: en curso = desde el inicio; terminada = desde el inicio (sigue contando hasta el OK); interrumpida = desde el reinicio */
+static uint32_t MinutoParaBle(void) {
+    if (midiendo && datos.infusion_configurada) {
+        return MinutoInfusion(esp_timer_get_time());
+    }
+    return Pendiente_MinutoActual(esp_timer_get_time());
+}
+
+static void DescargadoParaBle(void) {
+    ok_recibido = true;   // se atiende en el lazo principal (esta función corre en la tarea de comunicación)
+}
+
+static const comunicacion_enlace_t enlace_ble = {
+    .estado = EstadoParaBle,
+    .minuto_actual = MinutoParaBle,
+    .descargado = DescargadoParaBle,
+};
+#endif
+
 /** Guarda en la NVS la infusión activa (configuración y dónde empieza en el registro). Se escribe pocas veces por
  * infusión: al INICIO y en CAMBIO_DATOS */
 static void GuardarInfusion(void) {
@@ -370,6 +410,7 @@ static void GuardarInfusion(void) {
         .volumen_ml = datos.volumen_total_ml,
         .duracion_min = datos.duracion_min,
         .inicio_linea = inicio_linea_activa,
+        .id = id_activa,
     };
     Registro_GuardarInfusion(&inf);
 }
@@ -386,7 +427,10 @@ static void GuardarMuestra(int64_t ahora_us) {
 
 /** Lo llama alarmas con cada aviso o alarma que se activa o se resuelve: queda en el registro */
 static void EventoAlarma(alarma_evento_t evento, bool activo, int64_t ahora_us) {
-    Registro_Anotar(REG_ALARMA, activo, MinutoInfusion(ahora_us), (uint16_t)evento, 0);
+    if (activo && (evento == ALARMA_DESVIACION_FUERTE || evento == AVISO_DESVIACION_LEVE)) {
+        direccion_desvio[evento] = (Alarmas_Desvio() < 0.0f) ? 1 : 0;   // 0 = flujo alto, 1 = flujo bajo (lo pide la app)
+    }
+    Registro_Anotar(REG_ALARMA, activo, MinutoInfusion(ahora_us), (uint16_t)evento, direccion_desvio[evento]);
     ESP_LOGI(TAG, "%s %s", Alarmas_Nombre(evento), activo ? "ACTIVADA" : "resuelta");
 }
 
@@ -409,10 +453,12 @@ static void IniciarMedicion(void) {
     Alarmas_Iniciar(datos.factor_goteo, datos.volumen_total_ml, datos.duracion_min, ahora);
     datos.umbral_sin_gotas_s = (uint16_t)Alarmas_TOclusionS();
     midiendo = true;
-    datos.volumen_incierto = false;
+    Pendiente_Descartar();   // una infusión nueva deja de lado el registro sin descargar de la anterior
+    datos.registro_pendiente = false;
     duracion_guardada = datos.duracion_min;
     inicio_linea_activa = Registro_Total();                                          // dónde empieza esta infusión en el registro
-    Registro_Anotar(REG_INICIO, 0, 0, datos.factor_goteo, datos.volumen_total_ml);   // se abre el registro de la infusión
+    id_activa = Registro_NuevoId();                                                  // ID propio de esta infusión
+    Registro_AnotarConDato(REG_INICIO, 0, 0, datos.factor_goteo, datos.volumen_total_ml, id_activa);   // se abre el registro de la infusión
     Registro_Anotar(REG_DURACION, 0, 0, datos.duracion_min, 0);
     GuardarInfusion();                                                              // y se guarda como infusión activa
     ultimo_guardado_us = ahora;
@@ -446,8 +492,12 @@ static void RevisarTransiciones(ui_pantalla_t antes) {
     if (!datos.infusion_configurada && midiendo) {
         // Se detuvo el monitoreo (o se apagó): se anota el fin, se borra la infusión activa, se dejan de medir gotas
         // y se apaga lo que estuviera sonando
-        Registro_Anotar(REG_FIN, 0, MinutoInfusion(esp_timer_get_time()), Goteo_VolumenMl(), 0);
+        const int64_t ahora_fin = esp_timer_get_time();
+        const uint32_t minuto_fin = MinutoInfusion(ahora_fin);
+        Registro_AnotarConDato(REG_FIN, 0, minuto_fin, Goteo_VolumenMl(), 0, Goteo_Gotas());   // volumen y gotas totales
         Registro_BorrarInfusion();
+        Pendiente_Terminada(minuto_fin, ahora_fin);   // el minuto sigue contando hasta que la app confirme la descarga (OK)
+        datos.registro_pendiente = true;               // aviso: registro pendiente de descarga
         midiendo = false;
         tiempo_iniciado = false;
         Alarmas_Iniciar(datos.factor_goteo, datos.volumen_total_ml, datos.duracion_min, esp_timer_get_time());   // pone todos los eventos en cero
@@ -463,10 +513,13 @@ static bool SinInfusionEvaluable(void) {
     }
     switch (UI_PantallaActual()) {
     case UI_PANTALLA_FIN:
-    case UI_PANTALLA_ACCESO:
     case UI_PANTALLA_ALARMA:
-    case UI_PANTALLA_APAGAR:
         return true;
+    case UI_PANTALLA_ACCESO:
+    case UI_PANTALLA_APAGAR:
+    case UI_PANTALLA_PENDIENTE:
+        // La enfermera está ahí (clave, menú): no se cuentan gotas nuevas, pero una alarma que ya está activa sigue evaluándose
+        return Alarmas_Activas() != 0;
     default:
         return false;
     }
@@ -510,7 +563,7 @@ static ui_alarma_t AlarmaDeInterfaz(int evento) {
     case ALARMA_BATERIA_CRITICA:
     case ALARMA_BATERIA_BAJA:       return UI_ALARMA_BATERIA_BAJA;
     case ALARMA_COLOCACION:         return UI_ALARMA_COLOCACION;
-    case ALARMA_FALLA_EQUIPO:       return UI_ALARMA_FALLA_EQUIPO;
+    case ALARMA_EQUIPO_REINICIADO:  return UI_ALARMA_EQUIPO_REINICIADO;
     case ALARMA_GOTEO_SIN_MONITOREO: return UI_ALARMA_GOTEO_SIN_MONITOREO;
     default:                        return UI_ALARMA_NINGUNA;
     }
@@ -575,9 +628,17 @@ static bool EnMonitoreo(void) {
 }
 
 /** Una vez por segundo: evalúa las alarmas, las pasa a la interfaz y las hace sonar. */
-static void EvaluarAlarmas(int64_t ahora) {
-    bool sin_infusion = SinInfusionEvaluable();
+static void EvaluarAlarmas(int64_t ahora, bool forzar) {
+    // forzar: se evalúa aunque la pantalla no sea de "sin infusión" (para apagar una alarma cuando llega el OK o se descarta el registro)
+    bool sin_infusion = SinInfusionEvaluable() || (forzar && !midiendo);
     if (!midiendo && !sin_infusion) {
+        // Pantallas donde no se vigila (Colocación, Config, Resumen, autotest): si quedó una alarma activa o sonando se apaga,
+        // para que no siga sonando ni tape los sonidos de la interfaz (por ejemplo el beep del recordatorio del Ajuste)
+        if (Alarmas_Activas() != 0) {
+            Alarmas_Iniciar(datos.factor_goteo, datos.volumen_total_ml, datos.duracion_min, ahora);
+            CargarAlarmaEnInterfaz();
+            AlarmasSonido_Actualizar();
+        }
         return;
     }
     alarmas_entrada_t entrada = {
@@ -588,12 +649,32 @@ static void EvaluarAlarmas(int64_t ahora) {
         .base_optica_ok = true,          // TODO: nivel de base del fotodiodo en rango
         .bateria_pct = datos.bateria_pct,
         .cargador = false,               // sin detección de cargador (decidido): el aumento de tensión al cargar resuelve la alarma
-        .falla_equipo = falla_equipo,
+        .equipo_reiniciado = Pendiente_EquipoReiniciado(),
         .sin_infusion = sin_infusion,
     };
     Alarmas_Actualizar(&entrada, ahora);
     CargarAlarmaEnInterfaz();
     AlarmasSonido_Actualizar();
+}
+
+/** Registro pendiente de descarga: sigue contando minutos, atiende el OK de la app y el "Continuar igual" de la enfermera */
+static void AtenderPendiente(int64_t ahora) {
+    Pendiente_Tick(ahora);
+    if (ok_recibido) {
+        ok_recibido = false;
+        Pendiente_Descargado(ahora);   // la app confirmó la descarga: se deja de contar y se apaga el aviso y la alarma de reinicio
+        if (!midiendo) {
+            EvaluarAlarmas(ahora, true);
+        }
+    }
+    if (datos.descartar_pendiente) {
+        datos.descartar_pendiente = false;
+        Pendiente_Descartar();         // "Continuar igual": el registro sin descargar queda de lado
+        if (!midiendo) {
+            EvaluarAlarmas(ahora, true);
+        }
+    }
+    datos.registro_pendiente = Pendiente_Hay();
 }
 
 /** Reinicia el equipo sin pedir de nuevo el botón 3 s (el usuario ya lo mantuvo o eligió Salir) */
@@ -616,6 +697,8 @@ static void AtenderModoTecnico(void) {
         datos.borrar_registro = false;
         UI_PantallaMensaje("Borrando registro...");   // la partición tarda ~10 s en borrarse
         Registro_Borrar();
+        Pendiente_Descartar();   // sin registro no queda nada pendiente de descarga
+        datos.registro_pendiente = false;
         ESP_LOGW(TAG, "registro borrado desde el Modo Tecnico");
     }
     if (UI_SalirPedido()) {
@@ -639,59 +722,16 @@ static void ActualizarDiagnostico(void) {
  * encender la pantalla. No es consumo cero: el LED infrarrojo sigue encendido por hardware y el divisor de la
  * batería consume ~210 uA; para guardar el equipo hay que abrir el interruptor interno. */
 static void Reposo(void) {
+    Pendiente_Tick(esp_timer_get_time());   // con un registro pendiente, deja guardado el último minuto antes de dormir
+#if USAR_BLE
+    Comunicacion_Apagar();   // el BLE se apaga antes del light sleep
+#endif
     BuzzerAlarm_Stop();
     OpticalSensor_Stop();
     UI_PantallaApagada();
     ESP_LOGI(TAG, "reposo: mantener el boton %d ms para encender", ENCENDIDO_MS);
     Encoder_DormirHastaMantenido(ENCENDIDO_MS);
     ReiniciarSinEspera();
-}
-
-/** La infusión guardada tiene valores posibles (si no, se la ignora y se arranca normal) */
-static bool InfusionGuardadaValida(const registro_infusion_t *a) {
-    bool factor_ok = (a->factor_goteo == 10 || a->factor_goteo == 15 || a->factor_goteo == 20 || a->factor_goteo == 60);
-    return factor_ok && a->volumen_ml > 0 && a->duracion_min >= 10 && a->duracion_min <= 1440 &&
-           Alarmas_ResumenValido(a->factor_goteo, a->volumen_ml, a->duracion_min);
-}
-
-/** Retoma la infusión guardada tras un reinicio: sin clave, sin Config y sin Ajuste de goteo. La colocación
- * se verifica sola (si no está bien, la alarma de colocación salta como en el Monitoreo). El tiempo que estuvo
- * apagado no se conoce: el minuto sigue desde el último guardado y el volumen se marca como incierto (un mínimo) */
-static void Reanudar(const registro_infusion_t *a) {
-    int64_t ahora = esp_timer_get_time();
-    // El minuto y el contador de gotas salen de la última muestra del registro (se escribe cada 1 min)
-    uint32_t minuto = 0, gotas = 0;
-    if (!Registro_UltimaMuestra(a->inicio_linea, &minuto, &gotas)) {
-        ESP_LOGW(TAG, "no hay muestras en el registro: se retoma desde 0 (se reinicio antes del primer minuto)");
-    }
-    inicio_linea_activa = a->inicio_linea;
-    datos.factor_goteo = a->factor_goteo;
-    datos.volumen_total_ml = a->volumen_ml;
-    datos.duracion_min = a->duracion_min;
-    datos.flujo_objetivo_mlh = (a->volumen_ml * 60 + a->duracion_min / 2) / a->duracion_min;
-    datos.infusion_configurada = true;
-    datos.volumen_incierto = true;
-    datos.monitoreo_reanudado = true;
-
-    Goteo_Retomar(a->factor_goteo, gotas, minuto * 60, ahora);
-    Alarmas_Iniciar(a->factor_goteo, a->volumen_ml, a->duracion_min, ahora);
-    Alarmas_SetGotas(gotas);
-    datos.umbral_sin_gotas_s = (uint16_t)Alarmas_TOclusionS();
-    midiendo = true;
-    tiempo_iniciado = true;
-    duracion_guardada = a->duracion_min;
-
-    // Con una falla de componente (la batería baja no cuenta: tiene sus escalones) no hay enfermera para leerla: alarma alta
-    falla_equipo = false;
-    for (uint8_t i = 0; i < UI_CHEQUEOS_MAX - 1; i++) {
-        falla_equipo = falla_equipo || (chequeos[i].estado != UI_CHEQUEO_OK);
-    }
-    Registro_Anotar(REG_REINICIO, 0, minuto, falla_equipo, 0);
-    reanudado_ini_us = ahora;
-    ultimo_guardado_us = ahora;
-    ActualizarAngulo();
-    ActualizarMedicion(ahora);
-    UI_Ir(UI_PANTALLA_MONITOREO, &datos);
 }
 
 /*==================[external functions definition]==========================*/
@@ -708,6 +748,11 @@ void app_main(void) {
     if (!memoria_ok) {
         ESP_LOGE(TAG, "la memoria no volatil (NVS) no responde: no se puede guardar el registro (se reporta en el autotest)");
     }
+#if ESCENARIO != ESCENARIO_NORMAL
+    // Modo de prueba: cada línea que se guarda en el registro sale por la consola y al arrancar se muestran las últimas
+    // 60 guardadas (así se comprueba la memoria y que sobrevive a un reinicio sin necesitar el BLE ni la app)
+    Registro_ActivarLog(true);
+#endif
     Alarmas_SetCallback(EventoAlarma);
     UI_SetCallbackClave(EventoClave);
 #if ESCENARIO != ESCENARIO_NORMAL
@@ -723,26 +768,41 @@ void app_main(void) {
         ESP_LOGE(TAG, "el acelerómetro no responde (se reintenta en el autotest)");
     }
 
-    // Si había una infusión activa guardada (corte de batería, watchdog, brown-out) se retoma sola, sin esperar el botón
+    // Si había una infusión sin terminar (corte de batería, watchdog, brown-out) YA NO se retoma: se la da por interrumpida, suena la
+    // alarma de reinicio y se pide la descarga. Lo mismo con un registro terminado y sin descargar. En esos casos no se espera el botón
     registro_infusion_t activa;
-    bool reanudar = memoria_ok && Registro_CargarInfusion(&activa) && InfusionGuardadaValida(&activa);
-    if (!reanudar && !sin_espera) {
+    bool sin_terminar = memoria_ok && Registro_CargarInfusion(&activa);
+    Pendiente_Init();
+    bool pendiente = memoria_ok && Pendiente_AlEncender(sin_terminar, esp_timer_get_time());
+    if (!pendiente && !sin_espera) {
         // "Encendido": la pantalla queda apagada hasta mantener el botón apretado
         ESP_LOGI(TAG, "Mantener el botón %d ms para encender", ENCENDIDO_MS);
         Encoder_EsperarMantenido(ENCENDIDO_MS);
-    } else {
-        ESP_LOGW(TAG, "infusion activa guardada (empieza en la linea %lu del registro): se retoma", (unsigned long)activa.inicio_linea);
+    } else if (pendiente) {
+        ESP_LOGW(TAG, "registro pendiente de descarga%s: se pide la descarga con la app", sin_terminar ? " (infusion interrumpida por un reinicio)" : "");
     }
     BuzzerAlarm_Efecto(BUZZER_EFECTO_ENCENDIDO);   // tonos ascendentes mientras se muestra la pantalla de inicio
 
     UI_SetChequeos(chequeos, UI_CHEQUEOS_MAX);
     DatosIniciales();
     datos.registro_minutos_libres = Registro_MinutosLibres();
-    AutotestInicio(!reanudar);   // se hace mientras se muestra "Iniciando": si todo da OK pasa directo a la clave
+    datos.registro_pendiente = pendiente;
+    AutotestInicio(!pendiente);  // se hace mientras se muestra "Iniciando": si todo da OK pasa directo a la clave (con un registro pendiente no bloquea)
     ActualizarAngulo();          // para que la pantalla de Colocación no parta de un "correcto" por defecto
     Encoder_EsperarMantenido(0); // espera a que se suelte el botón (si se venía de mantenerlo) y descarta lo que se acumuló
-    if (reanudar) {
-        Reanudar(&activa);
+#if USAR_BLE
+    Comunicacion_Init(NOMBRE_BLE, &enlace_ble);   // BLE con la app: después del autotest, para que la radio no moleste la medición del nivel base
+#else
+    ESP_LOGW(TAG, "SIN Bluetooth (USAR_BLE = 0)");
+#endif
+    // Estado del registro: se muestra acá (y no al arrancar) porque la consola USB pierde las primeras líneas del arranque
+    ESP_LOGI(TAG, "registro: %lu lineas escritas, %lu minutos de muestras libres", (unsigned long)Registro_Total(),
+             (unsigned long)Registro_MinutosLibres());
+#if ESCENARIO != ESCENARIO_NORMAL
+    Registro_Volcar(60);
+#endif
+    if (pendiente) {
+        UI_IniciarSinInfusion(&datos);   // "Sin infusión activa" con la alarma de reinicio (si corresponde) y el aviso del registro pendiente
     } else {
         UI_IniciarClave(&datos);
     }
@@ -763,11 +823,12 @@ void app_main(void) {
             UI_Evento(ev, &datos);
             RevisarTransiciones(pantalla);
             AtenderModoTecnico();
+            AtenderPendiente(esp_timer_get_time());
 
             if (!silenciada_antes && datos.alarma_silenciada) {
                 int silenciada = Alarmas_Mostrar();
                 if (silenciada >= 0) {
-                    Registro_Anotar(REG_SILENCIADO, 0, MinutoInfusion(esp_timer_get_time()), (uint16_t)silenciada, 0);
+                    Registro_Anotar(REG_SILENCIADO, 0, MinutoInfusion(esp_timer_get_time()), (uint16_t)silenciada, direccion_desvio[silenciada]);
                 }
                 Alarmas_Silenciar(esp_timer_get_time());
                 CargarAlarmaEnInterfaz();
@@ -801,10 +862,8 @@ void app_main(void) {
             if (midiendo && datos.infusion_configurada && tiempo_iniciado && (ahora - ultimo_guardado_us) >= (int64_t)GUARDAR_CADA_S * 1000000) {
                 GuardarMuestra(ahora);    // cada 1 min: así un reinicio pierde como mucho un minuto de la cuenta
             }
-            if (datos.monitoreo_reanudado && (ahora - reanudado_ini_us) > (int64_t)REANUDADO_AVISO_S * 1000000) {
-                datos.monitoreo_reanudado = false;
-            }
-            EvaluarAlarmas(ahora);
+            AtenderPendiente(ahora);
+            EvaluarAlarmas(ahora, false);
             UI_Actualizar(&datos);
             AtenderModoTecnico();
             ultimo_refresco_us = esp_timer_get_time();

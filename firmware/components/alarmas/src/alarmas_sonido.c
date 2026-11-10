@@ -7,8 +7,8 @@
 _Static_assert((int)ALARMA_VOLUMEN_COMPLETO == (int)BUZZER_ALARM_VOLUMEN_COMPLETO, "orden distinto");
 _Static_assert((int)ALARMA_FLUJO_DETENIDO == (int)BUZZER_ALARM_FLUJO_DETENIDO, "orden distinto");
 _Static_assert((int)ALARMA_FIN_SACHET == (int)BUZZER_ALARM_FIN_SACHET, "orden distinto");
+_Static_assert((int)ALARMA_EQUIPO_REINICIADO == (int)BUZZER_ALARM_EQUIPO_REINICIADO, "orden distinto");
 _Static_assert((int)ALARMA_COLOCACION == (int)BUZZER_ALARM_COLOCACION, "orden distinto");
-_Static_assert((int)ALARMA_FALLA_EQUIPO == (int)BUZZER_ALARM_FALLA_EQUIPO, "orden distinto");
 _Static_assert((int)ALARMA_BATERIA_CRITICA == (int)BUZZER_ALARM_BATERIA_CRITICA, "orden distinto");
 _Static_assert((int)ALARMA_DESVIACION_FUERTE == (int)BUZZER_ALARM_DESVIACION_FUERTE, "orden distinto");
 _Static_assert((int)ALARMA_GOTEO_SIN_MONITOREO == (int)BUZZER_ALARM_GOTEO_SIN_MONITOREO, "orden distinto");

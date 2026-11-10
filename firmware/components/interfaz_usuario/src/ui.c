@@ -137,16 +137,13 @@ static const char *TextoAviso(const ui_datos_t *d) {
         case UI_ALARMA_FIN_SACHET:       return "! FIN SACHET";
         case UI_ALARMA_BATERIA_BAJA:     return "! BATERIA BAJA";
         case UI_ALARMA_COLOCACION:       return "! COLOCACION";
-        case UI_ALARMA_FALLA_EQUIPO:     return "! FALLA EQUIPO";
+        case UI_ALARMA_EQUIPO_REINICIADO: return "! EQUIPO SE APAGO";
         case UI_ALARMA_GOTEO_SIN_MONITOREO: return "! GOTEO SIN MONIT.";
         default: break;
         }
     }
     if (d->aviso_bateria) {
         return "! AVISO BATERIA 20%";   // la batería llegó al 20 %: sin sonido, solo este aviso
-    }
-    if (d->monitoreo_reanudado) {
-        return "Monitoreo reanudado";   // se retomó tras un reinicio
     }
     return d->en_pausa ? "|| PAUSA" : NULL;
 }
@@ -193,8 +190,8 @@ static void PantallaMonitoreo(const ui_datos_t *d) {
     u8g2_DrawStr(&u8g2, 54, 44, "mL/h");
 
     u8g2_SetFont(&u8g2, u8g2_font_6x12_tr);
-    snprintf(texto, sizeof(texto), d->volumen_incierto ? ">%uml" : "%uml", d->volumen_ml);   // ">" = como mínimo (se reinició sin conocer el tiempo apagado)
-    u8g2_DrawStr(&u8g2, d->volumen_incierto ? 86 : 92, 30, texto);
+    snprintf(texto, sizeof(texto), "%uml", d->volumen_ml);
+    u8g2_DrawStr(&u8g2, 92, 30, texto);
     snprintf(texto, sizeof(texto), "%02lu:%02lu", (unsigned long)(d->tiempo_s / 3600),
              (unsigned long)((d->tiempo_s / 60) % 60));
     u8g2_DrawStr(&u8g2, 91, 46, texto);
@@ -235,14 +232,14 @@ static void PantallaAlarma(const ui_datos_t *d) {
         titulo = "FIN SACHET";
         snprintf(detalle, sizeof(detalle), "%u mL completados", d->volumen_total_ml);
         break;
-    case UI_ALARMA_FALLA_EQUIPO:
-        titulo = "FALLA EQUIPO";
+    case UI_ALARMA_EQUIPO_REINICIADO:
+        titulo = "SE APAGO";   // "El equipo se apagó — llamar a enfermería" (el título más largo que entra en la pantalla)
         snprintf(detalle, sizeof(detalle), "Llamar a enfermeria");
         break;
     case UI_ALARMA_GOTEO_SIN_MONITOREO:
         nivel = "ALARMA MEDIA";
-        titulo = "SIN MONITOREO";
-        snprintf(detalle, sizeof(detalle), "Hay goteo: llamar a enf.");
+        titulo = "SIN MONIT.";   // el título entra hasta en 12 caracteres (10 px cada uno en 128 px)
+        snprintf(detalle, sizeof(detalle), "Hay goteo: llamar");   // el detalle entra hasta en 20 caracteres (6 px cada uno)
         break;
     case UI_ALARMA_BATERIA_BAJA:
         nivel = "ALARMA MEDIA";
@@ -450,9 +447,10 @@ static void DibujarPantalla(const ui_datos_t *d) {
         break;
     case UI_PANTALLA_FIN:
         if (sin_infusion_abierta) {
-            Pant_Menu(&u8g2, "Sin infusion activa", items_sin_infusion, SIN_INFUSION_ITEMS, menu_cursor, 0, "Pulsar: elegir");
+            Pant_Menu(&u8g2, "Sin infusion activa", items_sin_infusion, SIN_INFUSION_ITEMS, menu_cursor, 0,
+                      d->registro_pendiente ? "Registro sin descargar" : "Pulsar: elegir");
         } else {
-            Pant_SinInfusion(&u8g2, d->bateria_pct);
+            Pant_SinInfusion(&u8g2, d->bateria_pct, d->registro_pendiente);
         }
         break;
     case UI_PANTALLA_TECNICO:
@@ -470,8 +468,16 @@ static void DibujarPantalla(const ui_datos_t *d) {
                        d->registro_descargado ? "Seguro?" : "Borrar igual?", apagar_si);
         break;
     case UI_PANTALLA_APAGAR:
-        Pant_Confirmar(&u8g2, "Apagar equipo?", d->infusion_configurada ? "Se finalizara la infusion" : "Se apagara el equipo",
-                       "Verificar clamp cerrado", apagar_si);
+        if (d->registro_pendiente && !d->infusion_configurada) {
+            // Con el registro sin descargar se avisa antes de apagar (si igual se apaga, se conserva y el tiempo apagado cuenta como un reinicio)
+            Pant_Confirmar(&u8g2, "Apagar equipo?", "Registro sin descargar", "Apagar igual?", apagar_si);
+        } else {
+            Pant_Confirmar(&u8g2, "Apagar equipo?", d->infusion_configurada ? "Se finalizara la infusion" : "Se apagara el equipo",
+                           "Verificar clamp cerrado", apagar_si);
+        }
+        break;
+    case UI_PANTALLA_PENDIENTE:
+        Pant_Confirmar(&u8g2, "Continuar igual?", "Hay un registro sin", "descargar", apagar_si);
         break;
     }
 }
@@ -600,7 +606,7 @@ void UI_Actualizar(ui_datos_t *d) {
     // La clave (salvo la del arranque) y el menú vuelven solos adonde estaban si nadie los usa
     bool inactivo = (esp_timer_get_time() - ultima_actividad_us) > (int64_t)t_inactividad_s * 1000000;
     if (inactivo && !acceso_arranque && (pantalla == UI_PANTALLA_ACCESO || pantalla == UI_PANTALLA_AJUSTES ||
-                                         pantalla == UI_PANTALLA_DETENER || pantalla == UI_PANTALLA_APAGAR)) {
+                                         pantalla == UI_PANTALLA_DETENER || pantalla == UI_PANTALLA_APAGAR || pantalla == UI_PANTALLA_PENDIENTE)) {
         pantalla = acceso_origen;
         if (pantalla == UI_PANTALLA_FIN) {
             sin_infusion_abierta = false;   // sin infusión: se vuelve a la pantalla bloqueada
@@ -618,6 +624,13 @@ void UI_Actualizar(ui_datos_t *d) {
     DibujarPantalla(d);
 }
 
+void UI_IniciarSinInfusion(ui_datos_t *d) {
+    acceso_arranque = false;
+    sin_infusion_abierta = false;
+    pantalla = UI_PANTALLA_FIN;
+    DibujarPantalla(d);
+}
+
 void UI_IniciarClave(ui_datos_t *d) {
     acceso_arranque = true;
     acceso_errores = 0;
@@ -631,7 +644,7 @@ void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
     bool muy_largo = (ev == ENC_CLICK_MUY_LARGO);   // 3 s apretado: abre la clave
 
     if (pantalla == UI_PANTALLA_ACCESO || pantalla == UI_PANTALLA_AJUSTES || pantalla == UI_PANTALLA_DETENER ||
-        pantalla == UI_PANTALLA_APAGAR || (pantalla == UI_PANTALLA_FIN && sin_infusion_abierta) || EnModoTecnico()) {
+        pantalla == UI_PANTALLA_APAGAR || pantalla == UI_PANTALLA_PENDIENTE || (pantalla == UI_PANTALLA_FIN && sin_infusion_abierta) || EnModoTecnico()) {
         ultima_actividad_us = esp_timer_get_time();
     }
 
@@ -666,8 +679,9 @@ void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
             acceso_error = false;
         } else if (pulsar) {
             if (++acceso_posicion == CODIGO_DIGITOS) {
-                if (acceso_arranque && CodigoCoincide(UI_CODIGO_TECNICO)) {
-                    // El Modo Técnico solo existe en el arranque normal (sin infusión activa)
+                if ((acceso_arranque || !d->infusion_configurada) && CodigoCoincide(UI_CODIGO_TECNICO)) {
+                    // El Modo Técnico solo existe sin infusión activa: en el arranque normal o en "Sin infusión activa" (así se puede entrar
+                    // también con un registro pendiente, cuando el arranque va directo a "Sin infusión activa")
                     acceso_errores = 0;
                     acceso_arranque = false;
                     if (clave_cb != NULL) {
@@ -828,13 +842,30 @@ void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
             menu_cursor = (menu_cursor + SIN_INFUSION_ITEMS + sentido) % SIN_INFUSION_ITEMS;
         } else if (pulsar) {
             if (menu_cursor == 0) {
-                sin_infusion_abierta = false;
-                pantalla = UI_PANTALLA_COLOCACION;   // infusión nueva: Colocación, Config, Resumen...
+                if (d->registro_pendiente) {
+                    apagar_si = false;
+                    pantalla = UI_PANTALLA_PENDIENTE;   // hay un registro sin descargar: se pregunta antes de seguir
+                } else {
+                    sin_infusion_abierta = false;
+                    pantalla = UI_PANTALLA_COLOCACION;   // infusión nueva: Colocación, Config, Resumen...
+                }
             } else {
                 apagar_si = false;
                 apagar_origen = UI_PANTALLA_FIN;
                 pantalla = UI_PANTALLA_APAGAR;
             }
+        }
+        break;
+
+    case UI_PANTALLA_PENDIENTE:
+        if (sentido) {
+            apagar_si = !apagar_si;
+        } else if (pulsar && apagar_si) {
+            d->descartar_pendiente = true;   // el main da por descartado el registro sin descargar
+            sin_infusion_abierta = false;
+            pantalla = UI_PANTALLA_COLOCACION;
+        } else if (pulsar || mantener) {
+            pantalla = UI_PANTALLA_FIN;      // vuelve a Sin infusión activa (la sesión sigue abierta)
         }
         break;
 
@@ -899,6 +930,9 @@ void UI_Evento(encoder_evento_t ev, ui_datos_t *d) {
         } else if (pulsar) {
             d->borrar_registro = apagar_si;   // el main borra el registro
             pantalla = UI_PANTALLA_TECNICO;
+            if (apagar_si) {
+                salir_pedido = true;          // después de borrar se sale del Modo Técnico: el main reinicia el equipo (logo, autotest y clave)
+            }
         } else if (mantener) {
             pantalla = UI_PANTALLA_TECNICO;
         }

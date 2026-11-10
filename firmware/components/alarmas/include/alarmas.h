@@ -16,8 +16,8 @@
  * | VOLUMEN_COMPLETO          | alta         | V infundido >= V programado y siguen cayendo gotas       |
  * | FLUJO_DETENIDO            | alta         | sin gotas más de T_ocl y V infundido < 90 %              |
  * | FIN_SACHET                | alta         | sin gotas más de T_ocl y V infundido >= 90 %             |
+ * | EQUIPO_REINICIADO         | alta         | el equipo se reinició con una infusión sin terminar y falta la descarga |
  * | COLOCACION                | alta         | inclinación o base óptica fuera de rango, 5 s seguidos   |
- * | FALLA_EQUIPO              | alta         | un chequeo del autotest falló al retomar tras un reinicio |
  * | BATERIA_CRITICA           | alta         | batería <= 5 %                                           |
  * | DESVIACION_FUERTE         | media        | desvío del caudal > 30 % durante 2 min                   |
  * | GOTEO_SIN_MONITOREO       | media        | sin infusión activa, gotas continuas durante 2 min       |
@@ -42,6 +42,7 @@
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation                              |
  * | 05/11/2026 | Alarmas_SetTiempos también acorta el goteo sin monitoreo (gsm_persist_s, gsm_hueco_s) |
+ * | 10/11/2026 | FALLA_EQUIPO se reemplaza por EQUIPO_REINICIADO (el equipo ya no retoma la infusión tras un reinicio); se quita Alarmas_SetGotas |
  * | 05/11/2026 | Eventos nuevos FALLA_EQUIPO y GOTEO_SIN_MONITOREO; Alarmas_SetGotas |
  * | 05/11/2026 | Alarmas_CambiarDuracion: cambio de datos en plena infusión sin reiniciar el contador |
  * | 05/11/2026 | La alarma de desvío fuerte pasa de 25 % a 30 % (se apaga en 28 %), según la especificación actual |
@@ -60,8 +61,8 @@ typedef enum {
     ALARMA_VOLUMEN_COMPLETO = 0,
     ALARMA_FLUJO_DETENIDO,
     ALARMA_FIN_SACHET,
+    ALARMA_EQUIPO_REINICIADO,    /* mismo nivel de prioridad que FLUJO_DETENIDO / FIN_SACHET */
     ALARMA_COLOCACION,
-    ALARMA_FALLA_EQUIPO,
     ALARMA_BATERIA_CRITICA,
     ALARMA_DESVIACION_FUERTE,
     ALARMA_GOTEO_SIN_MONITOREO,
@@ -87,7 +88,7 @@ typedef struct {
     bool  base_optica_ok;      /*!< true si el nivel de base del fotodiodo está en el rango normal (equipo en la cámara) */
     uint8_t bateria_pct;       /*!< Carga de la batería, 0 a 100 */
     bool  cargador;            /*!< true con el cargador conectado: se anulan las alarmas de batería */
-    bool  falla_equipo;        /*!< true si el autotest falló al retomar una infusión tras un reinicio (alarma alta, no hay enfermera presente) */
+    bool  equipo_reiniciado;   /*!< true mientras el equipo tenga una infusión interrumpida por un reinicio y sin descargar (alarma alta: no hay enfermera presente) */
     bool  sin_infusion;        /*!< true si no hay infusión activa y se evalúa el goteo sin monitoreo (pantalla Sin infusión y clave del arranque) */
 } alarmas_entrada_t;
 
@@ -124,11 +125,6 @@ bool Alarmas_ResumenValido(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t 
  * empezar el Ajuste de goteo, que es cuando se empieza a contar el volumen.
  */
 void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duracion_min, int64_t ahora_us);
-
-/** @fn void Alarmas_SetGotas(uint32_t gotas)
- * @brief Carga el contador de gotas al retomar una infusión tras un reinicio (después de Alarmas_Iniciar)
- */
-void Alarmas_SetGotas(uint32_t gotas);
 
 /** @fn void Alarmas_GotaSinMonitoreo(int64_t ahora_us)
  * @brief Registra una gota detectada cuando NO hay infusión activa. Si caen gotas de forma continua

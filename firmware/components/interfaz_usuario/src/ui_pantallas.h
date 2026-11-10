@@ -32,8 +32,9 @@ void Pant_AjusteGoteo(u8g2_t *g, uint16_t gotas_min, uint16_t volumen_ml, uint16
 /** Alarma activa; invertida=true la dibuja en blanco con texto negro (parpadea alternando) */
 void Pant_Alarma(u8g2_t *g, bool invertida, const char *nivel, const char *derecha, const char *titulo, const char *detalle);
 
-/** Sin infusión activa (bloqueada: para operar hay que mantener el botón y poner la clave) */
-void Pant_SinInfusion(u8g2_t *g, uint8_t bateria_pct);
+/** Sin infusión activa (bloqueada: para operar hay que mantener el botón y poner la clave). Con registro_pendiente
+ * avisa "Registro pendiente de descarga" y "Conectar la app" */
+void Pant_SinInfusion(u8g2_t *g, uint8_t bateria_pct, bool registro_pendiente);
 
 /** Mensaje corto centrado (p. ej. "Registro guardado") */
 void Pant_Mensaje(u8g2_t *g, const char *texto);

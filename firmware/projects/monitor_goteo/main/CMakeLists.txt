@@ -1,3 +1,3 @@
-idf_component_register(SRCS "monitor_goteo.c"
+idf_component_register(SRCS "monitor_goteo.c" "pendiente.c"
                     INCLUDE_DIRS ""
-                    REQUIRES interfaz_usuario sensado alarmas buzzer_alarm drop_detection inclinacion bateria registro optical_sensor)
+                    REQUIRES interfaz_usuario sensado alarmas buzzer_alarm drop_detection inclinacion bateria registro optical_sensor comunicacion)

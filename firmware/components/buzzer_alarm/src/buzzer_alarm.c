@@ -31,7 +31,7 @@ static const paso_t p_fin_sachet[] = {
     {3400, 200}, {3800, 200}, {4200, 300}, {0, 1500}, {0, 0}};
 static const paso_t p_colocacion[] = {
     {3500, 150}, {0, 150}, {3500, 150}, {0, 1200}, {0, 0}};
-static const paso_t p_falla_equipo[] = {
+static const paso_t p_equipo_reiniciado[] = {
     {4200, 100}, {3300, 100}, {4200, 100}, {3300, 100}, {4200, 100}, {3300, 100}, {0, 800}, {0, 0}};
 static const paso_t p_bateria_critica[] = {
     {3300, 500}, {0, 200}, {3300, 500}, {0, 1000}, {0, 0}};
@@ -53,8 +53,8 @@ static const paso_t *const patrones[TOTAL_PATRONES] = {
     [BUZZER_ALARM_VOLUMEN_COMPLETO]  = p_volumen_completo,
     [BUZZER_ALARM_FLUJO_DETENIDO]    = p_flujo_detenido,
     [BUZZER_ALARM_FIN_SACHET]        = p_fin_sachet,
+    [BUZZER_ALARM_EQUIPO_REINICIADO] = p_equipo_reiniciado,
     [BUZZER_ALARM_COLOCACION]        = p_colocacion,
-    [BUZZER_ALARM_FALLA_EQUIPO]      = p_falla_equipo,
     [BUZZER_ALARM_BATERIA_CRITICA]   = p_bateria_critica,
     [BUZZER_ALARM_DESVIACION_FUERTE] = p_desviacion_fuerte,
     [BUZZER_ALARM_GOTEO_SIN_MONITOREO] = p_goteo_sin_monitoreo,
@@ -66,7 +66,7 @@ static const paso_t *const patrones[TOTAL_PATRONES] = {
 };
 
 static const char *const nombres[BUZZER_ALARM_CANTIDAD] = {
-    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "COLOCACION", "FALLA_EQUIPO",
+    "VOLUMEN_COMPLETO", "FLUJO_DETENIDO", "FIN_SACHET", "EQUIPO_REINICIADO", "COLOCACION",
     "BATERIA_CRITICA", "DESVIACION_FUERTE", "GOTEO_SIN_MONITOREO", "BATERIA_BAJA"};
 
 static TaskHandle_t tarea = NULL;

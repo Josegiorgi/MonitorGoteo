@@ -34,6 +34,7 @@
  * | 05/11/2026 | El Resumen no deja iniciar si no queda lugar en la memoria del registro (registro_minutos_libres): "Memoria llena. Llamar a soporte técnico" |
  * | 05/11/2026 | UI_SetTiempos: acorta los tiempos de la interfaz para probar |
  * | 05/11/2026 | Modo Técnico (código técnico en la clave del arranque): Diagnóstico, Probar alarma, Borrar registro y Salir; a los 5 min sin actividad sale solo. UI_PantallaMensaje |
+ * | 10/11/2026 | Registro pendiente de descarga: aviso en "Sin infusión activa" (sin sonido), confirmación "Hay un registro sin descargar. ¿Continuar igual?" antes de una infusión nueva y al apagar. Alarma EQUIPO_REINICIADO en lugar de FALLA_EQUIPO; se quitan el volumen incierto y "Monitoreo reanudado" (ya no se retoma). El código técnico también se acepta en la clave de "Sin infusión activa" |
  * | 05/11/2026 | Alarmas FALLA_EQUIPO y GOTEO_SIN_MONITOREO (esta última también se muestra en Sin infusión y en la clave del arranque); volumen incierto (">") y "Monitoreo reanudado" tras un reinicio; UI_SetCallbackClave para el registro |
  * | 05/11/2026 | Autotest con cinco chequeos que muestra "Falla: <nombre>" y qué hacer si algo falla (ui_chequeo_t.accion); el Resumen tiene dos páginas (factor de goteo destacado con "Verificar en el envase de la guía", y volumen, duración, mL/h y gtt/min); recordatorio_ajuste en el Ajuste de goteo |
  * | 05/11/2026 | Menú de Ajustes de la especificación (Cambiar datos, Detener monitoreo, Apagar, Volver), con confirmación de Detener y de Apagar y pantalla Sin infusión activa (Nueva infusión o Apagar; se bloquea a los 60 s). Cambiar datos edita solo la duración y pasa por el Resumen y el Ajuste de goteo sin reiniciar el contador. El Resumen no deja iniciar con menos de 2 gtt/min |
@@ -65,7 +66,7 @@ typedef enum {
     UI_ALARMA_FIN_SACHET,         /*!< Se alcanzó el volumen programado y ya no hay gotas */
     UI_ALARMA_BATERIA_BAJA,       /*!< Carga de la batería en estado crítico */
     UI_ALARMA_COLOCACION,         /*!< El equipo se movió de la guía (p. ej. por un choque): vuelve a la pantalla de colocación */
-    UI_ALARMA_FALLA_EQUIPO,       /*!< Falló un chequeo del autotest al retomar una infusión tras un reinicio: "Llamar a enfermería" */
+    UI_ALARMA_EQUIPO_REINICIADO,  /*!< El equipo se reinició con una infusión sin terminar: "El equipo se apagó — llamar a enfermería" */
     UI_ALARMA_GOTEO_SIN_MONITOREO,/*!< Caen gotas sin infusión activa (se detuvo el monitoreo pero el clamp quedó abierto): "Llamar a enfermería" */
 } ui_alarma_t;
 
@@ -117,8 +118,8 @@ typedef struct {
     const char *version;           /*!< Versión del firmware */
     uint8_t  probar_alarma;        /*!< Probar alarma: 0 = ninguna, n = número de patrón + 1 (el main lo hace sonar) */
     bool     borrar_registro;      /*!< La interfaz lo pone en true al confirmar el borrado; el main borra y lo baja */
-    bool volumen_incierto;         /*!< true si el volumen es un mínimo (se retomó tras un reinicio sin conocer el tiempo apagado): se muestra con ">" */
-    bool monitoreo_reanudado;      /*!< true los primeros minutos después de retomar tras un reinicio: el pie dice "Monitoreo reanudado" */
+    bool registro_pendiente;       /*!< true si hay un registro (infusión terminada o interrumpida) sin descargar: aviso "Registro pendiente de descarga", sin sonido */
+    bool descartar_pendiente;      /*!< La interfaz lo pone en true cuando la enfermera elige "Continuar igual" con un registro sin descargar; el main lo baja */
     bool recordatorio_ajuste;      /*!< true si pasaron 10 min en el Ajuste de goteo sin confirmar: el pie dice "Confirmar ajuste" (el main hace el beep) */
     bool aviso_bateria;            /*!< true con el aviso de batería (carga <= 20 %): queda un aviso en blanco abajo en el Monitoreo, sin sonido ni pantalla de alarma */
     bool infusion_configurada;     /*!< true desde que se confirma el Resumen hasta que finaliza */
@@ -157,7 +158,8 @@ typedef enum {
     UI_PANTALLA_AJUSTES,        /*!< Ajustes (con clave): Cambiar datos, Detener monitoreo, Apagar y Volver */
     UI_PANTALLA_DETENER,        /*!< Confirmar "Finalizar infusión?" (Detener monitoreo) */
     UI_PANTALLA_FIN,            /*!< Sin infusión activa. Con la sesión abierta: Nueva infusión o Apagar; a los 60 s sin actividad queda bloqueada (mantener 3 s + clave) */
-    UI_PANTALLA_APAGAR,         /*!< Confirmar apagado */
+    UI_PANTALLA_APAGAR,         /*!< Confirmar apagado (con un registro sin descargar avisa antes) */
+    UI_PANTALLA_PENDIENTE,      /*!< "Hay un registro sin descargar. ¿Continuar igual?" antes de configurar una infusión nueva */
     UI_PANTALLA_TECNICO,        /*!< Modo Técnico: Diagnóstico, Probar alarma, Borrar registro y Salir (solo en el arranque normal) */
     UI_PANTALLA_DIAGNOSTICO,    /*!< Modo Técnico: datos en vivo (solo lectura) */
     UI_PANTALLA_PROBAR_ALARMA,  /*!< Modo Técnico: hace sonar el patrón de cada alarma */
@@ -209,6 +211,12 @@ void UI_SetCallbackClave(ui_clave_cb_t cb);
  * sigue y las alarmas se siguen evaluando.
  */
 bool UI_EditandoDatos(void);
+
+/** @fn void UI_IniciarSinInfusion(ui_datos_t *datos)
+ * @brief Arranca en "Sin infusión activa" (bloqueada, con el aviso del registro pendiente) en lugar de la clave del
+ * arranque. Es lo que se muestra al encender con una infusión interrumpida o con un registro sin descargar.
+ */
+void UI_IniciarSinInfusion(ui_datos_t *datos);
 
 /** @fn void UI_IniciarClave(ui_datos_t *datos)
  * @brief Muestra la clave del arranque (después del autotest). Al ingresarla bien sigue la

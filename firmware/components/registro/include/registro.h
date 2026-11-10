@@ -23,6 +23,29 @@
  * Como el equipo no tiene RTC, el tiempo que estuvo apagado no se conoce: al retomar, el minuto y el
  * contador continúan desde la última muestra.
  *
+ * @section guardado Cuándo se guarda qué
+ *
+ * | Momento                                          | Qué se guarda                                           | Dónde          |
+ * |:-------------------------------------------------|:--------------------------------------------------------|:---------------|
+ * | Se confirma el Resumen (entra al Ajuste de goteo) | Configuración y línea del registro donde empieza        | NVS            |
+ * | El mismo momento                                 | REG_INICIO y REG_DURACION                               | Registro       |
+ * | Se confirma el Ajuste de goteo                   | REG_AJUSTE_OK                                           | Registro       |
+ * | Cada 1 min, desde que empieza el Monitoreo      | Muestra: minuto, gotas, caudal x10 y volumen x10        | Registro       |
+ * | Ajustes > Cambiar datos                          | REG_CAMBIO_DATOS y la nueva configuración               | Registro y NVS |
+ * | Un aviso o alarma se activa o se resuelve        | REG_ALARMA (activo = 1 o 0)                             | Registro       |
+ * | Se silencia una alarma                           | REG_SILENCIADO                                          | Registro       |
+ * | Se ingresa una clave                             | REG_CLAVE_OK, REG_CLAVE_ERROR o REG_TECNICO_OK          | Registro       |
+ * | El equipo retoma tras un reinicio                | REG_REINICIO                                            | Registro       |
+ * | Detener monitoreo o Apagar con infusión activa   | REG_FIN (volumen infundido) y se borra la infusión activa | Registro y NVS |
+ *
+ * No se guarda: lo que se edita en Config antes de confirmar el Resumen, cada gota por separado (solo el
+ * contador de cada minuto), el contador entre una muestra y la siguiente (un corte pierde como mucho 1 min),
+ * la navegación entre pantallas, el resultado del autotest, la batería en el tiempo (solo los avisos y alarmas
+ * de batería) y las acciones del Modo Técnico salvo el ingreso. Los eventos de claves y alarmas se anotan aunque
+ * no haya una infusión activa (con minuto 0).
+ *
+ * Si el equipo se corta antes de la primera muestra, retoma con el minuto y las gotas en 0.
+ *
  * @note La primera vez que corre con la partición (o con una flash sin formatear) la borra entera: tarda
  * unos 10 s y pasa una sola vez.
  *
@@ -31,6 +54,9 @@
  * |   Date	    | Description                                    |
  * |:----------:|:-----------------------------------------------|
  * | 05/11/2026 | Document creation                              |
+ * | 10/11/2026 | Estado de la última infusión y registro pendiente de descarga (Registro_LeerPendiente / Registro_EscribirPendiente): la NVS guarda si terminó, si fue interrumpida por un reinicio y si espera la descarga. Ya no se retoma tras un reinicio |
+ * | 07/11/2026 | Registro_ActivarLog y Registro_Volcar: ver por consola lo que se guarda, para probar sin BLE |
+ * | 07/11/2026 | Para el BLE: ID de infusión (Registro_NuevoId), última infusión (Registro_UltimaInfusion) y un dato extra de 32 bits en los eventos (Registro_AnotarConDato) |
  * | 05/11/2026 | Registro en una partición propia de la flash (líneas de 16 B, eventos y muestras por minuto) en lugar de la NVS, según la especificación actualizada |
  *
  */
@@ -51,7 +77,7 @@ typedef enum {
     REG_AJUSTE_OK,     /*!< La enfermera confirmó el Ajuste de goteo */
     REG_CAMBIO_DATOS,  /*!< Ajustes > Cambiar datos: a = duración anterior, b = duración nueva (min) */
     REG_FIN,           /*!< Fin de la infusión (detenida o apagada): a = volumen infundido (mL) */
-    REG_REINICIO,      /*!< El equipo se reinició con una infusión activa y la retomó: a = 1 si el autotest falló */
+    REG_REINICIO,      /*!< El equipo se reinició con una infusión sin terminar (queda interrumpida) o con un registro sin descargar; el minuto es el último minuto guardado */
     REG_CLAVE_OK,      /*!< Clave clínica correcta */
     REG_CLAVE_ERROR,   /*!< Clave incorrecta */
     REG_TECNICO_OK,    /*!< Se ingresó el código técnico */
@@ -79,7 +105,7 @@ typedef struct __attribute__((packed)) {
     uint8_t  reservado; /*!< Sin uso */
     uint16_t a;         /*!< Eventos: primer dato. Muestras: caudal x10 */
     uint16_t b;         /*!< Eventos: segundo dato. Muestras: volumen x10 */
-    uint32_t gotas;     /*!< Muestras: contador de gotas */
+    uint32_t gotas;     /*!< Muestras: contador de gotas. Eventos: dato extra (REG_INICIO: ID de la infusión, REG_FIN: gotas totales) */
 } registro_linea_t;
 
 /**
@@ -90,7 +116,23 @@ typedef struct {
     uint16_t volumen_ml;      /*!< Volumen programado, en mL */
     uint16_t duracion_min;    /*!< Duración programada, en minutos */
     uint32_t inicio_linea;    /*!< Número de la línea del registro donde empezó esta infusión (REG_INICIO) */
+    uint32_t id;              /*!< ID de la infusión: único por infusión, no cambia con un reinicio ni con Cambiar datos */
 } registro_infusion_t;
+
+/** Estados de la última infusión (los mismos valores que informa ESTADO por BLE) */
+#define REGISTRO_ESTADO_TERMINADA     0   /*!< Terminó (Detener monitoreo o Apagar): tiene línea FIN */
+#define REGISTRO_ESTADO_EN_CURSO      1   /*!< Sigue en curso */
+#define REGISTRO_ESTADO_INTERRUMPIDA  2   /*!< El equipo se reinició antes de que terminara: no tiene línea FIN, termina en REINICIO */
+
+/**
+ * @brief Estado de la última infusión y de su descarga, guardado en la NVS junto con su ID y su línea de inicio
+ */
+typedef struct {
+    uint8_t  estado;            /*!< REGISTRO_ESTADO_* */
+    bool     pendiente;         /*!< true si todavía no se recibió el OK de la app (el equipo sigue contando minutos) */
+    uint32_t base_minuto;       /*!< Interrumpida: minuto del último REINICIO (los minutos que se informan se cuentan desde ahí) */
+    uint32_t minuto_congelado;  /*!< Minuto informado cuando se recibió el OK (ya no se cuenta más) */
+} registro_pendiente_t;
 
 /*==================[external functions declaration]=========================*/
 
@@ -110,6 +152,34 @@ bool Registro_Probar(void);
  * @brief Agrega un evento al registro. Pone el registro como "no descargado".
  */
 void Registro_Anotar(registro_evento_t evento, uint8_t activo, uint32_t minuto, uint16_t a, uint16_t b);
+
+/** @fn void Registro_AnotarConDato(registro_evento_t evento, uint8_t activo, uint32_t minuto, uint16_t a, uint16_t b, uint32_t dato)
+ * @brief Igual que Registro_Anotar, con un dato extra de 32 bits (REG_INICIO: ID de la infusión; REG_FIN: gotas totales)
+ */
+void Registro_AnotarConDato(registro_evento_t evento, uint8_t activo, uint32_t minuto, uint16_t a, uint16_t b, uint32_t dato);
+
+/** @fn uint32_t Registro_NuevoId(void)
+ * @brief ID para una infusión nueva: el contador sube de a uno y queda guardado en la NVS. No se reinicia al borrar el registro.
+ */
+uint32_t Registro_NuevoId(void);
+
+/** @fn bool Registro_UltimaInfusion(uint32_t *id, uint32_t *inicio_linea)
+ * @brief ID y línea de inicio de la última infusión que se abrió (la activa o, si ya terminó, la que terminó). Es lo que
+ * descarga la app. Se guarda junto con la infusión activa y no se borra al finalizar.
+ * @return true si hay una infusión en el registro
+ */
+bool Registro_UltimaInfusion(uint32_t *id, uint32_t *inicio_linea);
+
+/** @fn bool Registro_LeerPendiente(registro_pendiente_t *pendiente)
+ * @brief Estado de la última infusión y de su descarga
+ * @return false si todavía no hubo ninguna infusión
+ */
+bool Registro_LeerPendiente(registro_pendiente_t *pendiente);
+
+/** @fn bool Registro_EscribirPendiente(const registro_pendiente_t *pendiente)
+ * @brief Guarda el estado de la última infusión y de su descarga (al FIN, al reiniciar y al recibir el OK)
+ */
+bool Registro_EscribirPendiente(const registro_pendiente_t *pendiente);
 
 /** @fn void Registro_Muestra(uint32_t minuto, uint32_t gotas, uint16_t caudal_x10, uint16_t volumen_x10)
  * @brief Agrega la muestra de cada 1 min: contador de gotas, caudal (mL/h x10) y volumen (mL x10)
@@ -168,6 +238,18 @@ bool Registro_CargarInfusion(registro_infusion_t *infusion);
  * @brief Borra la infusión activa de la NVS (al FIN)
  */
 void Registro_BorrarInfusion(void);
+
+/** @fn void Registro_ActivarLog(bool activar)
+ * @brief Con activar = true cada línea que se escribe en el registro también sale por la consola (para probar la memoria
+ * sin el BLE). Apagado por defecto.
+ */
+void Registro_ActivarLog(bool activar);
+
+/** @fn void Registro_Volcar(uint32_t max_lineas)
+ * @brief Imprime por la consola las últimas max_lineas líneas del registro. Sirve para comprobar que lo guardado
+ * sobrevive a un reinicio.
+ */
+void Registro_Volcar(uint32_t max_lineas);
 
 /** @fn const char *Registro_NombreEvento(uint8_t evento)
  * @brief Nombre del evento, para la consola y la descarga

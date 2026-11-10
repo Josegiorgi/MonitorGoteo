@@ -49,6 +49,9 @@
             "path": "./projects/test_bateria"
         },
         {
+            "path": "./projects/test_ble"
+        },
+        {
             "path": "./projects/monitor_goteo"
         }
     ],
