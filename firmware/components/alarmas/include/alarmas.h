@@ -42,6 +42,7 @@
  * |:----------:|:-----------------------------------------------|
  * | 29/10/2026 | Document creation                              |
  * | 05/11/2026 | Alarmas_SetTiempos también acorta el goteo sin monitoreo (gsm_persist_s, gsm_hueco_s) |
+ * | 12/11/2026 | Batería: el cambio de escalón (aviso, media, crítica, o de vuelta a normal) solo vale si se sostiene 30 s (BAT_PERSIST_S, acortable con bateria_persist_s), porque la curva es plana y 2 % de histéresis son pocos mV |
  * | 10/11/2026 | FALLA_EQUIPO se reemplaza por EQUIPO_REINICIADO (el equipo ya no retoma la infusión tras un reinicio); se quita Alarmas_SetGotas |
  * | 05/11/2026 | Eventos nuevos FALLA_EQUIPO y GOTEO_SIN_MONITOREO; Alarmas_SetGotas |
  * | 05/11/2026 | Alarmas_CambiarDuracion: cambio de datos en plena infusión sin reiniciar el contador |
@@ -104,6 +105,7 @@ typedef struct {
     uint16_t rearme_s;                /*!< Segundos hasta que una alarma alta silenciada se re-arma */
     uint16_t gsm_persist_s;           /*!< Segundos de gotas continuas sin infusión activa para la alarma de goteo sin monitoreo */
     uint16_t gsm_hueco_s;             /*!< Segundos sin gotas que cortan la racha del goteo sin monitoreo (y la resuelven) */
+    uint16_t bateria_persist_s;       /*!< Segundos que un nivel de batería nuevo tiene que sostenerse antes de cambiar de escalón (30 s en la especificación) */
 } alarmas_tiempos_t;
 
 /**

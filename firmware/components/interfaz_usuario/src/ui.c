@@ -51,7 +51,9 @@ typedef struct {
 } parametro_t;
 
 static const uint16_t factores_goteo[] = {10, 15, 20, 60};          /* gtt/mL: 20 macrogoteo, 60 microgoteo */
-static const uint16_t volumenes_ml[] = {50, 100, 250, 500, 1000};   /* sachets habituales */
+/* El primero (10 mL) es solo para pruebas con la bomba: se ofrece si se llamó a UI_VolumenPrueba10ml(true) */
+static const uint16_t volumenes_ml[] = {10, 50, 100, 250, 500, 1000};   /* sachets habituales */
+static bool volumen_prueba_10ml = false;
 
 static const parametro_t parametros[CONFIG_PARAMETROS] = {
     {"Factor de goteo",  "gtt/mL", factores_goteo, sizeof(factores_goteo) / sizeof(factores_goteo[0]), 0, 0, 0},
@@ -135,15 +137,16 @@ static const char *TextoAviso(const ui_datos_t *d) {
         case UI_ALARMA_OCLUSION:         return "! OCLUSION";
         case UI_ALARMA_DESVIACION_FLUJO: return "! DESVIACION FLUJO";
         case UI_ALARMA_FIN_SACHET:       return "! FIN SACHET";
-        case UI_ALARMA_BATERIA_BAJA:     return "! BATERIA BAJA";
+        case UI_ALARMA_BATERIA_BAJA:     return "! CONECTAR CARGADOR";   // dice qué hacer: la alarma se resuelve sola al subir la tensión
         case UI_ALARMA_COLOCACION:       return "! COLOCACION";
         case UI_ALARMA_EQUIPO_REINICIADO: return "! EQUIPO SE APAGO";
         case UI_ALARMA_GOTEO_SIN_MONITOREO: return "! GOTEO SIN MONIT.";
+        case UI_ALARMA_BATERIA_CRITICA:  return "! LLAMAR ENFERMERIA";   // a 5 % ya no alcanzó con el aviso: hay que pedir ayuda
         default: break;
         }
     }
     if (d->aviso_bateria) {
-        return "! AVISO BATERIA 20%";   // la batería llegó al 20 %: sin sonido, solo este aviso
+        return "! CONECTAR CARGADOR";   // la batería llegó al 20 % (se ve arriba): sin sonido, solo este aviso que dice qué hacer
     }
     return d->en_pausa ? "|| PAUSA" : NULL;
 }
@@ -241,10 +244,16 @@ static void PantallaAlarma(const ui_datos_t *d) {
         titulo = "SIN MONIT.";   // el título entra hasta en 12 caracteres (10 px cada uno en 128 px)
         snprintf(detalle, sizeof(detalle), "Hay goteo: llamar");   // el detalle entra hasta en 20 caracteres (6 px cada uno)
         break;
+    case UI_ALARMA_BATERIA_CRITICA:
+        titulo = "BAT CRITICA";                                           // el título entra hasta en 12 caracteres (10 px cada uno)
+        snprintf(derecha, sizeof(derecha), "%u%%", d->bateria_pct);
+        snprintf(detalle, sizeof(detalle), "Llame a enfermeria");        // prioridad alta: nivel "ALARMA ALTA" por defecto
+        break;
     case UI_ALARMA_BATERIA_BAJA:
         nivel = "ALARMA MEDIA";
         titulo = "BATERIA BAJA";
-        snprintf(detalle, sizeof(detalle), "Carga: %u%%", d->bateria_pct);
+        snprintf(derecha, sizeof(derecha), "%u%%", d->bateria_pct);        // la carga, arriba a la derecha como el % de desvío
+        snprintf(detalle, sizeof(detalle), "Conecte el cargador");        // 19 caracteres: entra en los 124 px del detalle
         break;
     default:
         detalle[0] = '\0';
@@ -294,13 +303,18 @@ static void CambiarParametro(ui_datos_t *d, uint8_t i, int8_t sentido) {
     uint16_t *valor = Campo(d, i);
 
     if (parametros[i].lista != NULL) {
-        const uint8_t n = parametros[i].cantidad;
+        const uint16_t *lista = parametros[i].lista;
+        uint8_t n = parametros[i].cantidad;
+        if (lista == volumenes_ml && !volumen_prueba_10ml) {
+            lista++;   // sin el modo de prueba se saltea el 10 mL
+            n--;
+        }
         uint8_t k = 0;
-        while (k < n - 1 && parametros[i].lista[k] != *valor) {
+        while (k < n - 1 && lista[k] != *valor) {
             k++;   // si el valor actual no está en la lista, parte del último
         }
         k = (sentido > 0) ? (k + 1) % n : (k + n - 1) % n;
-        *valor = parametros[i].lista[k];
+        *valor = lista[k];
     } else {
         int32_t nuevo = (int32_t)*valor + sentido * parametros[i].paso;
         if (nuevo < parametros[i].minimo) {
@@ -505,6 +519,10 @@ void UI_PantallaInicio(uint8_t cuadro) {
     u8g2_DrawXBMP(&u8g2, 46, 31, 32, 32, refresh_wait_32_32_28f_frames[cuadro % 28]);
 
     u8g2_SendBuffer(&u8g2);
+}
+
+void UI_VolumenPrueba10ml(bool activar) {
+    volumen_prueba_10ml = activar;
 }
 
 void UI_SetChequeos(const ui_chequeo_t *chequeos, uint8_t cantidad) {

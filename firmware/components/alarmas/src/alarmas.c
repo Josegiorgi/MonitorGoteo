@@ -32,6 +32,7 @@
 #define BAT_BAJA_PCT            10
 #define BAT_CRITICA_PCT         5
 #define BAT_HISTERESIS_PCT      2
+#define BAT_PERSIST_S           30        /*!< Segundos que el nivel nuevo tiene que sostenerse antes de cambiar de escalón (evita saltos por ruido del ADC o picos de consumo) */
 
 /* Colocación (sección 5) */
 #define COL_PERSIST_S           5         /*!< Tiempo que la condición tiene que sostenerse para activarse o apagarse */
@@ -57,6 +58,7 @@ static uint32_t t_desv_fuerte_persist_s = DESV_FUERTE_PERSIST_S;
 static uint32_t t_rearme_s = REARME_S;
 static uint32_t t_gsm_persist_s = GSM_PERSIST_S;
 static uint32_t t_gsm_hueco_s = GSM_HUECO_S;
+static uint32_t t_bat_persist_s = BAT_PERSIST_S;
 
 static bool hay_gota = false;
 static int64_t ultima_gota_us = 0;
@@ -82,6 +84,8 @@ static int64_t gsm_ini_us = 0;              /* inicio de la racha de gotas sin i
 static int64_t gsm_ultima_us = 0;           /* última gota sin infusión activa (0 = ninguna) */
 
 static uint8_t bat_nivel = 0;               /* 0 = normal, 1 = aviso, 2 = baja, 3 = crítica */
+static uint8_t bat_candidato = 0;           /* nivel al que se quiere cambiar, mientras no se sostenga el tiempo */
+static int64_t bat_cand_ini_us = -1;        /* desde cuándo se mantiene ese candidato (-1 = no hay) */
 
 static uint32_t activas = 0;
 static uint32_t silenciadas = 0;
@@ -224,17 +228,29 @@ static void EvaluarBateria(const alarmas_entrada_t *e, int64_t ahora_us) {
     static const uint8_t umbral[4] = {0, BAT_AVISO_PCT, BAT_BAJA_PCT, BAT_CRITICA_PCT};
     if (e->cargador) {
         bat_nivel = 0;
+        bat_cand_ini_us = -1;
     } else {
-        // Mejora: baja de escalón solo si supera el umbral + histéresis
-        while (bat_nivel > 0 && e->bateria_pct > umbral[bat_nivel] + BAT_HISTERESIS_PCT) {
-            bat_nivel--;
-        }
+        // Nivel que corresponde a la carga actual. Mejora: baja de escalón solo si supera el umbral + histéresis.
         // Empeora: entra al escalón apenas llega al umbral
-        for (uint8_t n = 3; n > bat_nivel; n--) {
+        uint8_t nuevo = bat_nivel;
+        while (nuevo > 0 && e->bateria_pct > umbral[nuevo] + BAT_HISTERESIS_PCT) {
+            nuevo--;
+        }
+        for (uint8_t n = 3; n > nuevo; n--) {
             if (e->bateria_pct <= umbral[n]) {
-                bat_nivel = n;
+                nuevo = n;
                 break;
             }
+        }
+        // El cambio de escalón (para arriba o para abajo) solo vale si se sostiene BAT_PERSIST_S segundos seguidos
+        if (nuevo == bat_nivel) {
+            bat_cand_ini_us = -1;
+        } else if (bat_cand_ini_us < 0 || nuevo != bat_candidato) {
+            bat_candidato = nuevo;
+            bat_cand_ini_us = ahora_us;
+        } else if (ahora_us - bat_cand_ini_us >= US(t_bat_persist_s)) {
+            bat_nivel = nuevo;
+            bat_cand_ini_us = -1;
         }
     }
     Poner(ALARMA_BATERIA_CRITICA, bat_nivel == 3, ahora_us);
@@ -281,6 +297,7 @@ void Alarmas_Iniciar(uint16_t factor_goteo, uint16_t volumen_ml, uint16_t duraci
     col_cambio_ini_us = -1;
     vol_incierto = false;
     bat_nivel = 0;
+    bat_cand_ini_us = -1;
     gsm_ini_us = 0;
     gsm_ultima_us = 0;
     activas = 0;
@@ -415,6 +432,7 @@ void Alarmas_SetTiempos(const alarmas_tiempos_t *t) {
     t_rearme_s = (t != NULL) ? t->rearme_s : REARME_S;
     t_gsm_persist_s = (t != NULL && t->gsm_persist_s > 0) ? t->gsm_persist_s : GSM_PERSIST_S;
     t_gsm_hueco_s = (t != NULL && t->gsm_hueco_s > 0) ? t->gsm_hueco_s : GSM_HUECO_S;
+    t_bat_persist_s = (t != NULL && t->bateria_persist_s > 0) ? t->bateria_persist_s : BAT_PERSIST_S;
 }
 
 uint32_t Alarmas_Activas(void) {

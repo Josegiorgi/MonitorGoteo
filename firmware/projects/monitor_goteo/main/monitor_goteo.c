@@ -166,7 +166,7 @@
 #define ESCENARIO_NORMAL             0
 #define ESCENARIO_OCLUSION_FIN       1
 #define ESCENARIO_DESVIO_COLOCACION  2
-#define ESCENARIO                    ESCENARIO_DESVIO_COLOCACION   /*!< por defecto, la versión final es ESCENARIO_NORMAL */
+#define ESCENARIO                    ESCENARIO_OCLUSION_FIN   /*!< por defecto, la versión final es ESCENARIO_NORMAL */
 
 #if ESCENARIO == ESCENARIO_OCLUSION_FIN
 #define NOMBRE_ESCENARIO      "OCLUSION_FIN"
@@ -215,6 +215,7 @@ static const alarmas_tiempos_t tiempos_prueba = {
     .rearme_s = 20,
     .gsm_persist_s = 20,    /* goteo sin monitoreo: 2 min en la especificación */
     .gsm_hueco_s = 15,      /* y se resuelve a los 15 s sin gotas (45 s en la especificación) */
+    .bateria_persist_s = 5, /* cambio de escalón de batería: 30 s en la especificación */
 };
 #endif
 /* Chequeos del autotest, en el orden de la especificación. Si uno falla se muestra "Falla: <nombre>" y la acción */
@@ -560,7 +561,7 @@ static ui_alarma_t AlarmaDeInterfaz(int evento) {
     case ALARMA_DESVIACION_FUERTE:  return UI_ALARMA_DESVIACION_FLUJO;
     case ALARMA_FIN_SACHET:
     case ALARMA_VOLUMEN_COMPLETO:   return UI_ALARMA_FIN_SACHET;   // la interfaz todavía no tiene pantalla propia para volumen completo
-    case ALARMA_BATERIA_CRITICA:
+    case ALARMA_BATERIA_CRITICA:    return UI_ALARMA_BATERIA_CRITICA;
     case ALARMA_BATERIA_BAJA:       return UI_ALARMA_BATERIA_BAJA;
     case ALARMA_COLOCACION:         return UI_ALARMA_COLOCACION;
     case ALARMA_EQUIPO_REINICIADO:  return UI_ALARMA_EQUIPO_REINICIADO;
@@ -758,6 +759,7 @@ void app_main(void) {
 #if ESCENARIO != ESCENARIO_NORMAL
     Alarmas_SetTiempos(&tiempos_prueba);
     UI_SetTiempos(20, 30, 15);   // inactividad de clave/Ajustes/Sin infusión 20 s, Modo Técnico 30 s, bloqueo de clave 15 s
+    UI_VolumenPrueba10ml(true);  // 10 mL como opción de volumen, para probar con la bomba
     ESP_LOGW(TAG, "ESCENARIO DE PRUEBA: %s (tiempos de alarma acortados, no es la versión final)", NOMBRE_ESCENARIO);
 #endif
     Bateria_Init();

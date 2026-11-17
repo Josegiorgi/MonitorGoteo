@@ -34,6 +34,8 @@
  * | 05/11/2026 | El Resumen no deja iniciar si no queda lugar en la memoria del registro (registro_minutos_libres): "Memoria llena. Llamar a soporte técnico" |
  * | 05/11/2026 | UI_SetTiempos: acorta los tiempos de la interfaz para probar |
  * | 05/11/2026 | Modo Técnico (código técnico en la clave del arranque): Diagnóstico, Probar alarma, Borrar registro y Salir; a los 5 min sin actividad sale solo. UI_PantallaMensaje |
+ * | 12/11/2026 | Alarma de interfaz propia para la batería crítica (5 %): título BAT CRITICA y "Llame a enfermeria"; silenciada, el pie dice "! LLAMAR ENFERMERIA" |
+ * | 12/11/2026 | Los avisos de batería dicen qué hacer: "! CONECTAR CARGADOR" abajo y, en la alarma de batería baja, "Conecte el cargador" con el porcentaje arriba a la derecha |
  * | 10/11/2026 | Registro pendiente de descarga: aviso en "Sin infusión activa" (sin sonido), confirmación "Hay un registro sin descargar. ¿Continuar igual?" antes de una infusión nueva y al apagar. Alarma EQUIPO_REINICIADO en lugar de FALLA_EQUIPO; se quitan el volumen incierto y "Monitoreo reanudado" (ya no se retoma). El código técnico también se acepta en la clave de "Sin infusión activa" |
  * | 05/11/2026 | Alarmas FALLA_EQUIPO y GOTEO_SIN_MONITOREO (esta última también se muestra en Sin infusión y en la clave del arranque); volumen incierto (">") y "Monitoreo reanudado" tras un reinicio; UI_SetCallbackClave para el registro |
  * | 05/11/2026 | Autotest con cinco chequeos que muestra "Falla: <nombre>" y qué hacer si algo falla (ui_chequeo_t.accion); el Resumen tiene dos páginas (factor de goteo destacado con "Verificar en el envase de la guía", y volumen, duración, mL/h y gtt/min); recordatorio_ajuste en el Ajuste de goteo |
@@ -64,10 +66,11 @@ typedef enum {
     UI_ALARMA_OCLUSION,           /*!< No se detectan gotas durante un tiempo configurable (flujo detenido) */
     UI_ALARMA_DESVIACION_FLUJO,   /*!< El caudal real se desvía más del 10 % del objetivo (por arriba o por debajo) */
     UI_ALARMA_FIN_SACHET,         /*!< Se alcanzó el volumen programado y ya no hay gotas */
-    UI_ALARMA_BATERIA_BAJA,       /*!< Carga de la batería en estado crítico */
+    UI_ALARMA_BATERIA_BAJA,       /*!< Batería <= 10 % (prioridad media): "Conecte el cargador" */
     UI_ALARMA_COLOCACION,         /*!< El equipo se movió de la guía (p. ej. por un choque): vuelve a la pantalla de colocación */
     UI_ALARMA_EQUIPO_REINICIADO,  /*!< El equipo se reinició con una infusión sin terminar: "El equipo se apagó — llamar a enfermería" */
     UI_ALARMA_GOTEO_SIN_MONITOREO,/*!< Caen gotas sin infusión activa (se detuvo el monitoreo pero el clamp quedó abierto): "Llamar a enfermería" */
+    UI_ALARMA_BATERIA_CRITICA,    /*!< Batería <= 5 % (prioridad alta): se apaga pronto, "Llame a enfermería" */
 } ui_alarma_t;
 
 /**
@@ -179,6 +182,11 @@ bool UI_Init(void);
  * @param cuadro Número de cuadro de la animación (28 cuadros, se repite); en Lopaka avanza cada 42 ms
  */
 void UI_PantallaInicio(uint8_t cuadro);
+
+/** @fn void UI_VolumenPrueba10ml(bool activar)
+ * @brief Agrega 10 mL a los volúmenes que se pueden elegir. Solo para probar con la bomba: la versión final no la llama.
+ */
+void UI_VolumenPrueba10ml(bool activar);
 
 /** @fn void UI_SetChequeos(const ui_chequeo_t *chequeos, uint8_t cantidad)
  * @brief Carga los resultados que muestra la pantalla Autotest (la lista debe seguir existiendo)
