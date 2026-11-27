@@ -23,7 +23,7 @@
 #define ESCENARIO_NORMAL             0
 #define ESCENARIO_OCLUSION_FIN       1
 #define ESCENARIO_DESVIO_COLOCACION  2
-#define ESCENARIO                    ESCENARIO_OCLUSION_FIN   /*!< por defecto, la versión final es ESCENARIO_NORMAL */
+#define ESCENARIO                    ESCENARIO_NORMAL  /*!< por defecto, la versión final es ESCENARIO_NORMAL */
 
 #if ESCENARIO == ESCENARIO_OCLUSION_FIN
 #define NOMBRE_ESCENARIO      "OCLUSION_FIN"
