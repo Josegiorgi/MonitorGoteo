@@ -2,7 +2,38 @@
 
 Firmware final del monitor de goteo (ESP32-C3): detección de gotas con BPW34, pantalla OLED y encoder, alarmas con buzzer, ángulo con ADXL345, batería, registro de la infusión en la flash y Bluetooth con la app de la enfermera. Las especificaciones (alarmas e inicio y navegación) están en el Drive; el contrato con la app está en `documentación/cambios_para_la_app.md` y la lista de pruebas en `documentación/pruebas_firmware_final.md`.
 
-Interruptores al principio de `main/monitor_goteo.c`: `USAR_BLE` (1 = con Bluetooth) y `ESCENARIO` (`ESCENARIO_NORMAL` = versión final; los demás acortan los tiempos para probar). Para commitear: `USAR_BLE = 1` y `ESCENARIO_NORMAL`.
+Explicación completa del diseño en [`documentación/firmware.md`](../../../documentación/firmware.md).
+
+## Interruptores de compilación
+
+Están en `main/escenarios.h`: `USAR_BLE` (1 = con Bluetooth) y `ESCENARIO` (`ESCENARIO_NORMAL` = versión final; los demás precargan una infusión y acortan los tiempos para probar sin esperar minutos). Para la versión final: `USAR_BLE = 1` y `ESCENARIO_NORMAL`. Si queda otra cosa, el compilador avisa con un `#warning`.
+
+## Conexiones
+
+| Dispositivo | ESP32-C3 |
+|:--|:--|
+| Salida del amplificador del BPW34 n°1 y n°2 | GPIO_2 y GPIO_3 (ADC1) |
+| Divisor de tensión de la batería (10 kΩ + 10 kΩ) | GPIO_4 (ADC1) |
+| OLED y ADXL345 (mismo bus I2C) | SCL GPIO_7, SDA GPIO_21 |
+| Encoder: CLK, DT y pulsador | GPIO_9, GPIO_8 y GPIO_20 |
+| Buzzer pasivo | GPIO_10 |
+
+## Cómo está organizado `main/`
+
+El programa principal solo une los componentes de `firmware/components`; lo propio de cada tema está en un módulo.
+
+| Archivo | Qué hace |
+|:--|:--|
+| `monitor_goteo.c` | `app_main`: inicia todo y atiende el lazo principal (encoder, gotas, tick de 1 s, apagado) |
+| `escenarios.h` | Interruptores `USAR_BLE` y `ESCENARIO`, y los tiempos que cambian con el escenario |
+| `estado.h` / `estado.c` | Lo único que comparten los módulos: `datos` (lo que muestra la interfaz) y `midiendo` |
+| `autotest.c` | Los cinco chequeos del arranque |
+| `infusion.c` | Ciclo de vida de la infusión: cola de gotas, inicio y fin, registro de eventos y muestra de cada minuto |
+| `gestion_alarmas.c` | Reúne los datos para el componente `alarmas`, pasa la alarma a la interfaz, la hace sonar y atiende el silenciado; lee ángulo y batería |
+| `descarga.c` | Enlace con el Bluetooth y atención del registro pendiente de descarga |
+| `pendiente.c` | Minuto que sigue contando después del fin o de un reinicio, hasta que la app confirma la descarga |
+| `modo_tecnico.c` | Lo que se pide desde el Modo Técnico: probar alarmas, borrar el registro, salir, diagnóstico |
+| `reposo.c` | Reposo después de Apagar y reinicio sin pedir de nuevo el botón 3 s |
 
 ## Decisiones de diseño vigentes
 
