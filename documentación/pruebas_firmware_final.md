@@ -19,6 +19,8 @@ Tildá lo que pase y anotá lo que falle (con el log de la consola).
 
 **Estado:** las etapas 1 a 3 (alarmas, batería, sonidos, clave, Ajustes y el paso a paso) ya están probadas. Todo lo demás está pendiente.
 
+**Compilación (27/11/2026):** después de dividir `monitor_goteo.c` en módulos, el firmware compila sin errores ni avisos con ESP-IDF 5.3, en la configuración final (`USAR_BLE = 1` y `ESCENARIO_NORMAL`): binario de 0xd5dc0 bytes, 16 % libre en la partición de la aplicación. La división en módulos se probó en el equipo. Si algo se comporta distinto de lo que dice este guion, el estado anterior a la división es el commit `db7628b`.
+
 **Al terminar:** dejar `USAR_BLE = 1` y `ESCENARIO_NORMAL` antes de commitear.
 
 ## Antes de empezar
